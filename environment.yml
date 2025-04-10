@@ -23,6 +23,7 @@ dependencies:
   
   # Required packages
   - sentencepiece
+  - scikit-learn
   - pyyaml
   - transformers>=4.37.0
   - einops
