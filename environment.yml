@@ -1,0 +1,77 @@
+name: internvl_env
+channels:
+  - pytorch
+  - nvidia  # Enabled for GPU support
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - numpy
+  - pandas
+  - pillow
+  - matplotlib
+  - tqdm
+  # GPU configuration
+  - pytorch>=2.0.0
+  - torchvision
+  - pytorch-cuda=11.8  # CUDA 11.8 support
+  
+  # CPU configuration (comment out when using GPU)
+  # - pytorch::pytorch>=2.0.0
+  # - pytorch::torchvision
+  # - cpuonly
+  
+  # Required packages
+  - sentencepiece
+  - pyyaml
+  - transformers>=4.37.0
+  - einops
+  - scikit-learn  # For metrics
+  - flask  # For training monitor dashboard
+  - tensorboard  # For logging and metrics visualization
+  - protobuf  # For serialization with transformers
+  - pip
+  - pip:
+    - accelerate>=0.26.0
+    - bitsandbytes  # For quantization
+    - timm>=1.0.0
+    - nltk>=3.8.1  # For BLEU score calculation
+    - rouge>=1.0.1  # For ROUGE score calculation
+    - tensorboard-data-server  # For training monitor
+    
+    # Stage 1 & 2 core dependencies
+    - safetensors>=0.4.0  # For model serialization with transformers
+    
+    # Optional GPU acceleration packages - install separately when needed
+    # For environments with CUDA properly set up:
+    # - flash-attn>=2.5.0  # For efficient attention
+    # - xformers>=0.0.23  # For efficient attention
+    # - deepspeed>=0.12.0  # For multi-GPU training
+    # - triton>=2.0.0  # For faster kernels
+    
+    # Install commands if you need them:
+    # CUDA_HOME=/usr/local/cuda pip install flash-attn
+    # pip install xformers deepspeed triton
+
+# Usage Instructions:
+# -----------------
+# Create environment: conda env create -f environment.yml
+# Update environment: conda env update -f environment.yml --prune
+# Activate environment: conda activate internvl_env
+# Remove environment: conda env remove -n internvl_env
+#
+# Note: Currently configured for GPU cloud instance with CUDA 11.8
+# Note: To switch to CPU-only, comment out the GPU packages and uncomment CPU packages
+# Note: For GPU cloud systems, ensure pytorch-cuda version matches your system's CUDA
+#
+# Stage 1 & 2 dependencies:
+# ----------------------
+# The environment now includes safetensors for proper model serialization
+# and loading of the vision-language components.
+#
+# Phase 3 & 4 dependencies:
+# ----------------------
+# The environment now includes additional packages for:
+# - NLG metrics evaluation (nltk, rouge)
+# - Training monitoring dashboard (flask)
+# - Hyperparameter optimization and experiment tracking
