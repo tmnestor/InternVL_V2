@@ -101,7 +101,14 @@ class TestTrainingPipeline(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         """Clean up after all tests."""
+        # Clean up the temporary directory
         cls.temp_dir.cleanup()
+    
+    def tearDown(self):
+        """Clean up after each test."""
+        # Make sure to clean up CUDA cache if available
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
     
     @classmethod
     def create_test_configs(cls):
@@ -246,111 +253,111 @@ class TestTrainingPipeline(unittest.TestCase):
     
     def create_mock_vision_model(self):
         """Create a mock vision model for testing."""
-        # Create a minimal InternVL2ReceiptClassifier for testing
-        model = InternVL2ReceiptClassifier.__new__(InternVL2ReceiptClassifier)
-        model.__init__ = lambda *args, **kwargs: None
-        model.__init__(None, None)
+        # Create a proper mock model that inherits from nn.Module
+        class MockVisionModel(nn.Module):
+            def __init__(self, config):
+                super().__init__()
+                self.config = config
+                self.logger = type('', (), {'info': print, 'warning': print, 'error': print})()
+                self.vision_encoder = MockVisionEncoder()
+                self.classification_head = nn.Linear(512, 3)
+            
+            def forward(self, pixel_values):
+                vision_outputs = self.vision_encoder(pixel_values)
+                embeddings = vision_outputs.last_hidden_state.mean(dim=1)
+                logits = self.classification_head(embeddings)
+                return {"logits": logits, "embeddings": embeddings}
+            
+            def unfreeze_vision_encoder(self, lr_multiplier=0.1):
+                return [{'params': self.classification_head.parameters()},
+                        {'params': self.vision_encoder.parameters(), 'lr': 1e-5}]
+                
+        # Create an instance of our mock model
+        model = MockVisionModel(self.vision_config)
         
-        # Set up essential attributes and methods manually
-        model.config = self.vision_config
-        model.logger = type('', (), {'info': print, 'warning': print, 'error': print})()
-        model.vision_encoder = MockVisionEncoder()
-        model.classification_head = nn.Linear(512, 3)
-        
-        # Mock the unfreeze_vision_encoder method
-        def mock_unfreeze(*args, **kwargs):
-            return [{'params': model.classification_head.parameters()},
-                    {'params': model.vision_encoder.parameters(), 'lr': 1e-5}]
-        model.unfreeze_vision_encoder = mock_unfreeze
-        
-        # Mock forward method
-        def mock_forward(pixel_values):
-            vision_outputs = model.vision_encoder(pixel_values)
-            embeddings = vision_outputs.last_hidden_state.mean(dim=1)
-            logits = model.classification_head(embeddings)
-            return {"logits": logits, "embeddings": embeddings}
-        model.forward = mock_forward
-        
+        # Freeze the vision encoder initially (to match expected behavior)
+        for param in model.vision_encoder.parameters():
+            param.requires_grad = False
+            
         return model
     
     def create_mock_multimodal_model(self):
         """Create a mock multimodal model for testing."""
-        # Create a minimal InternVL2MultimodalModel for testing
-        model = InternVL2MultimodalModel.__new__(InternVL2MultimodalModel)
-        model.__init__ = lambda *args, **kwargs: None
-        model.__init__(None, None)
-        
-        # Set up essential attributes and methods manually
-        model.config = self.multimodal_config
-        model.logger = type('', (), {'info': print, 'warning': print, 'error': print})()
-        
-        # Mock components
-        model.vision_encoder = MockVisionEncoder(hidden_size=512)
-        model.language_model = MockLanguageModel(hidden_size=512, vocab_size=1000)
-        model.classification_head = nn.Linear(512, 3)
-        model.cross_attention = nn.MultiheadAttention(embed_dim=512, num_heads=8, batch_first=True)
-        model.response_generator = nn.Sequential(
-            nn.Linear(512, 512),
-            nn.GELU(),
-            nn.Linear(512, 1000)
-        )
-        
-        # Mock tokenizer
-        class MockTokenizer:
-            def __init__(self):
-                self.vocab_size = 1000
-            
-            def decode(self, token_ids, skip_special_tokens=True):
-                return "Test response"
-        
-        model.tokenizer = MockTokenizer()
-        
-        # Mock forward method
-        def mock_forward(pixel_values, text_input_ids=None, attention_mask=None):
-            vision_outputs = model.vision_encoder(pixel_values)
-            image_embeds = vision_outputs.last_hidden_state
-            
-            # Classification logits from image embeddings
-            pooled_vision = image_embeds.mean(dim=1)
-            classification_logits = model.classification_head(pooled_vision)
-            
-            if text_input_ids is not None:
-                # Text encoding
-                text_outputs = model.language_model(text_input_ids, attention_mask)
-                text_embeds = text_outputs.last_hidden_state
+        # Create a proper mock model that inherits from nn.Module
+        class MockMultimodalModel(nn.Module):
+            def __init__(self, config):
+                super().__init__()
+                self.config = config
+                self.logger = type('', (), {'info': print, 'warning': print, 'error': print})()
                 
-                # Cross-modal attention
-                multimodal_embeds, _ = model.cross_attention(
-                    text_embeds, image_embeds, image_embeds
+                # Model components
+                self.vision_encoder = MockVisionEncoder(hidden_size=512)
+                self.language_model = MockLanguageModel(hidden_size=512, vocab_size=1000)
+                self.classification_head = nn.Linear(512, 3)
+                self.cross_attention = nn.MultiheadAttention(embed_dim=512, num_heads=8, batch_first=True)
+                self.response_generator = nn.Sequential(
+                    nn.Linear(512, 512),
+                    nn.GELU(),
+                    nn.Linear(512, 1000)
                 )
                 
-                # Create mock response logits
-                response_logits = torch.randn(text_input_ids.size(0), text_input_ids.size(1), 1000)
+                # Mock tokenizer
+                class MockTokenizer:
+                    def __init__(self):
+                        self.vocab_size = 1000
+                    
+                    def decode(self, token_ids, skip_special_tokens=True):
+                        return "Test response"
                 
-                return {
-                    "logits": classification_logits,
-                    "embeddings": pooled_vision,
-                    "multimodal_embeddings": multimodal_embeds,
-                    "response_logits": response_logits,
-                }
-            else:
-                return {
-                    "logits": classification_logits,
-                    "embeddings": pooled_vision
-                }
+                self.tokenizer = MockTokenizer()
+            
+            def forward(self, pixel_values, text_input_ids=None, attention_mask=None):
+                vision_outputs = self.vision_encoder(pixel_values)
+                image_embeds = vision_outputs.last_hidden_state
+                
+                # Classification logits from image embeddings
+                pooled_vision = image_embeds.mean(dim=1)
+                classification_logits = self.classification_head(pooled_vision)
+                
+                if text_input_ids is not None:
+                    # Text encoding
+                    text_outputs = self.language_model(text_input_ids, attention_mask)
+                    text_embeds = text_outputs.last_hidden_state
+                    
+                    # Cross-modal attention
+                    multimodal_embeds, _ = self.cross_attention(
+                        text_embeds, image_embeds, image_embeds
+                    )
+                    
+                    # Create mock response logits
+                    response_logits = torch.randn(text_input_ids.size(0), text_input_ids.size(1), 1000)
+                    
+                    return {
+                        "logits": classification_logits,
+                        "embeddings": pooled_vision,
+                        "multimodal_embeddings": multimodal_embeds,
+                        "response_logits": response_logits,
+                    }
+                else:
+                    return {
+                        "logits": classification_logits,
+                        "embeddings": pooled_vision
+                    }
+            
+            def generate_response(self, pixel_values, text_input_ids, attention_mask=None, max_length=50, **kwargs):
+                batch_size = text_input_ids.size(0)
+                # Return mocked generated IDs and texts
+                generated_ids = [list(range(10)) for _ in range(batch_size)]
+                decoded_texts = ["Generated text response"] * batch_size
+                return generated_ids, decoded_texts
         
-        model.forward = mock_forward
+        # Create an instance of our mock model
+        model = MockMultimodalModel(self.multimodal_config)
         
-        # Mock generate_response method
-        def mock_generate_response(pixel_values, text_input_ids, attention_mask=None, max_length=50, **kwargs):
-            batch_size = text_input_ids.size(0)
-            # Return mocked generated IDs and texts
-            generated_ids = [list(range(10)) for _ in range(batch_size)]
-            decoded_texts = ["Generated text response"] * batch_size
-            return generated_ids, decoded_texts
-        
-        model.generate_response = mock_generate_response
-        
+        # Freeze the vision encoder initially (to match expected behavior)
+        for param in model.vision_encoder.parameters():
+            param.requires_grad = False
+            
         return model
     
     def test_loss_function_implementation(self):
@@ -657,9 +664,13 @@ class TestTrainingPipeline(unittest.TestCase):
             def __len__(self):
                 return self.num_batches
         
+        # Move batch tensors to the device
+        device_batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
+                       for k, v in self.multimodal_batch.items()}
+        
         mock_dataloaders = {
-            "train": MockDataLoader(self.multimodal_batch),
-            "val": MockDataLoader(self.multimodal_batch)
+            "train": MockDataLoader(device_batch),
+            "val": MockDataLoader(device_batch)
         }
         
         multimodal_trainer = MultimodalTrainer(
