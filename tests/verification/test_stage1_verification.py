@@ -8,18 +8,22 @@ to support multimodal vision-language capabilities.
 """
 
 import os
-import unittest
-from pathlib import Path
 import sys
-import torch
+import unittest
+
 import numpy as np
+import torch
 
 # Add parent directory to path to allow imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 # Import components to test - these should be from your actual implementation
+from models.components.projection_head import (
+    ClassificationHead,
+    CrossAttention,
+    ResponseGenerator,
+)
 from models.internvl2 import InternVL2MultimodalModel
-from models.components.projection_head import CrossAttention, ResponseGenerator, ClassificationHead
 
 
 class TestModelImplementation(unittest.TestCase):
@@ -132,8 +136,8 @@ class TestModelImplementation(unittest.TestCase):
             self.skipTest(f"ResponseGenerator not implemented yet: {e}")
         
         # Check that the instance has the expected attributes
-        self.assertTrue(hasattr(response_gen, 'mlp'))
-        self.assertTrue(hasattr(response_gen, 'output_proj'))
+        self.assertTrue(hasattr(response_gen, 'feature_transformer'))
+        self.assertTrue(hasattr(response_gen, 'lm_head'))
         self.assertTrue(hasattr(response_gen, 'max_length'))
         
         # Create test inputs

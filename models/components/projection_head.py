@@ -279,10 +279,10 @@ class ResponseGenerator(nn.Module):
             prev_dim = hidden_dim
         
         # Feature transformer (processes multimodal features)
-        self.feature_transformer = nn.Sequential(*layers)
+        self.mlp = nn.Sequential(*layers)
         
         # Output projection to vocabulary
-        self.lm_head = nn.Linear(prev_dim, vocab_size)
+        self.output_proj = nn.Linear(prev_dim, vocab_size)
     
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
@@ -295,10 +295,10 @@ class ResponseGenerator(nn.Module):
             Dictionary with logits tensor [batch_size, seq_len, vocab_size]
         """
         # Process features
-        transformed = self.feature_transformer(x)  # [B, L, H]
+        transformed = self.mlp(x)  # [B, L, H]
         
         # Generate logits for each token position
-        logits = self.lm_head(transformed)  # [B, L, V]
+        logits = self.output_proj(transformed)  # [B, L, V]
         
         return {
             "logits": logits,
@@ -354,15 +354,15 @@ class ResponseGenerator(nn.Module):
             if i > seq_len:
                 # Use just the last generated token
                 last_token_pos = -1
-                transformed = self.feature_transformer(
+                transformed = self.mlp(
                     torch.cat([multimodal_context[:, 0, :], inputs[:, last_token_pos].unsqueeze(1)], dim=1)
                 )  # [B, H]
             else:
                 # Initial case, use the multimodal context directly
-                transformed = self.feature_transformer(multimodal_context[:, 0, :])  # [B, H]
+                transformed = self.mlp(multimodal_context[:, 0, :])  # [B, H]
             
             # Generate logits
-            logits = self.lm_head(transformed)  # [B, V]
+            logits = self.output_proj(transformed)  # [B, V]
             
             # Apply temperature
             logits = logits / temperature
