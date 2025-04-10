@@ -1,0 +1,82 @@
+data:
+  augmentation: true
+  batch_size: 16
+  image_size: 448
+  max_text_length: 128
+  num_workers: 4
+  test_csv: data/multimodal/test/metadata.csv
+  test_dir: data/multimodal/test/images
+  train_csv: data/multimodal/train/metadata.csv
+  train_dir: data/multimodal/train/images
+  val_csv: data/multimodal/val/metadata.csv
+  val_dir: data/multimodal/val/images
+evaluation:
+  batch_size: 16
+  metrics:
+    accuracy: true
+    bleu: true
+    f1: true
+    perplexity: false
+    precision: true
+    recall: true
+    rouge: true
+  model_path: models/multimodal/best_model.pt
+  save_predictions: true
+log_level: INFO
+model:
+  classifier:
+    activation: gelu
+    batch_norm: true
+    dropout_rates:
+    - 0.2
+    - 0.1
+    hidden_dims:
+    - 512
+    - 256
+  multimodal: true
+  num_classes: 3
+  pretrained_path: /Users/tod/PretrainedLLM/InternVL2_5-1B
+  use_8bit: false
+output:
+  checkpoint_frequency: 1
+  log_dir: logs/multimodal
+  model_dir: /Users/tod/Desktop/InternVL_V2/models/multimodal
+  results_dir: results/multimodal
+  save_best_only: false
+  save_frequency: 1
+  tensorboard: true
+seed: 42
+training:
+  early_stopping:
+    min_delta: 0.01
+    patience: 5
+  epochs: 15
+  flash_attention: true
+  fp16: false
+  gradient_accumulation_steps: 1
+  gradient_clip: 1.0
+  learning_rate: 2.0e-05
+  loss_weights:
+    classification: 1.0
+    language: 1.0
+  optimizer:
+    backbone_lr_multiplier: 0.01
+    language_lr_multiplier: 0.1
+    learning_rate: 2.0e-05
+    name: adamw
+    weight_decay: 0.01
+  scheduler:
+    min_lr_factor: 0.1
+    name: cosine
+    warmup_steps: 500
+  three_stage:
+    enabled: true
+    stage2:
+      lr_multiplier: 0.01
+      start_epoch: 6
+    stage3:
+      lr_multiplier: 0.01
+      start_epoch: 11
+  torch_compile: false
+  warmup_steps: 500
+  weight_decay: 0.0001

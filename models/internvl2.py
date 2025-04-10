@@ -68,11 +68,11 @@ class InternVL2ReceiptClassifier(nn.Module):
             self.logger.info(f"Loading model from local path: {pretrained_path}")
             # Set up the right parameters based on config
             kwargs = {
-                "device_map": "auto",
+                # "device_map": "auto",  # Commented for macOS development - re-enable for Linux GPU
                 "trust_remote_code": True,
                 "local_files_only": True,  # Ensure no download attempts
-                "use_sliding_window": False,  # Disable sliding window attention to prevent warnings
-                "max_memory": {0: "90%"}  # Explicitly set memory allocation
+                # "max_memory": {0: "16GB"},  # Commented for macOS development - re-enable for Linux GPU
+                "torch_dtype": torch.float32  # Use float32 for CPU compatibility
             }
             
             # Enable Flash Attention if available and configured
@@ -450,11 +450,11 @@ class InternVL2MultimodalModel(nn.Module):
             self.logger.info(f"Loading model from local path: {pretrained_path}")
             # Set up the right parameters based on config
             kwargs = {
-                "device_map": "auto",
+                # "device_map": "auto",  # Commented for macOS development - re-enable for Linux GPU
                 "trust_remote_code": True,
                 "local_files_only": True,
-                "use_sliding_window": False,
-                "max_memory": {0: "90%"}
+                # "max_memory": {0: "16GB"},  # Commented for macOS development - re-enable for Linux GPU
+                "torch_dtype": torch.float32  # Use float32 for CPU compatibility
             }
             
             # Enable Flash Attention if available and configured
@@ -529,7 +529,7 @@ class InternVL2MultimodalModel(nn.Module):
                             pretrained_path,
                             trust_remote_code=True,
                             local_files_only=True,
-                            device_map="auto"
+                            # device_map="auto"  # Commented for macOS development - re-enable for Linux GPU
                         )
                         self.logger.info("Loaded language model successfully.")
                     except Exception as e:

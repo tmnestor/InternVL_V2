@@ -90,6 +90,9 @@ class MultimodalTrainer:
             language_weight=loss_weights.get("language", 1.0),
         )
         
+        # Get total number of epochs from config
+        self.epochs = config["training"].get("epochs", 15)
+        
         # Initial optimizer setup - will be reconfigured during stage transitions
         self.optimizer = self._configure_optimizer(stage=1)
         self.scheduler = self._configure_scheduler()
@@ -450,12 +453,19 @@ class MultimodalTrainer:
                 # Convert to text for metric calculation
                 tokenizer = self.model.tokenizer
                 for i in range(min(3, pred_tokens.size(0))):  # Only decode a few samples to save time
-                    pred_text = tokenizer.decode(pred_tokens[i], skip_special_tokens=True)
-                    target_text = tokenizer.decode(batch["labels"][i], skip_special_tokens=True)
-                    
-                    if pred_text and target_text:  # Only add non-empty strings
-                        all_predictions.append(pred_text)
-                        all_targets.append(target_text)
+                    try:
+                        # Filter out negative or extremely large token IDs that may cause overflow
+                        pred_tokens_valid = [t.item() for t in pred_tokens[i] if 0 <= t.item() < tokenizer.vocab_size]
+                        label_tokens_valid = [t.item() for t in batch["labels"][i] if 0 <= t.item() < tokenizer.vocab_size]
+                        
+                        pred_text = tokenizer.decode(pred_tokens_valid, skip_special_tokens=True)
+                        target_text = tokenizer.decode(label_tokens_valid, skip_special_tokens=True)
+                        
+                        if pred_text and target_text:  # Only add non-empty strings
+                            all_predictions.append(pred_text)
+                            all_targets.append(target_text)
+                    except Exception as e:
+                        self.logger.warning(f"Error decoding tokens: {e}")
             
             # Update progress bar
             pbar.set_postfix({

@@ -7,7 +7,7 @@ log_level: INFO
 
 # Model configuration
 model:
-  pretrained_path: "/path/to/internvl2-5-1B"  # Replace with actual path
+  pretrained_path: "/Users/tod/PretrainedLLM/InternVL2_5-1B"  # Replace with actual path
   multimodal: true  # Enable multimodal mode
   num_classes: 3  # 0, 1, 2+ receipts for classification task
   use_8bit: false  # Disable 8-bit quantization for better accuracy
