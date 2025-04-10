@@ -2,41 +2,34 @@
 """
 Runner script for Stage 3 verification tests.
 
-This script runs all the verification tests for Stage 3 (Training Pipeline).
+This script runs the verification tests for Stage 3 (Training Pipeline),
+which focuses on the training infrastructure for both vision-only and
+multimodal models.
 """
-import argparse
-import unittest
+
+import os
 import sys
-from pathlib import Path
+import unittest
 
+# Add parent directory to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-def run_tests(verbose=False):
-    """Run Stage 3 verification tests."""
-    # Configure test loader
-    loader = unittest.TestLoader()
-    
-    # Load tests from test modules
-    test_dir = Path(__file__).parent
-    
-    # Run specific validation tests for Stage 3
-    verification_tests = loader.discover(
-        str(test_dir / "verification"),
-        pattern="test_stage3_*.py",
-    )
-    
-    # Configure test runner
-    runner = unittest.TextTestRunner(verbosity=2 if verbose else 1)
-    
-    # Run tests
-    result = runner.run(verification_tests)
-    
-    # Return success status for CI/CD
-    return 0 if result.wasSuccessful() else 1
+# Import test module
+from tests.verification.test_stage3_verification import TestTrainingPipeline
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run Stage 3 verification tests")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Display verbose test output")
-    args = parser.parse_args()
+    # Create a test suite with our test cases
+    suite = unittest.TestSuite()
     
-    sys.exit(run_tests(verbose=args.verbose))
+    # Add all test methods from the TestTrainingPipeline class
+    for method_name in dir(TestTrainingPipeline):
+        if method_name.startswith('test_'):
+            suite.addTest(TestTrainingPipeline(method_name))
+    
+    # Run the tests with a more verbose output
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
+    
+    # Exit with status code based on test results
+    sys.exit(not result.wasSuccessful())
