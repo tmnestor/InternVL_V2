@@ -565,7 +565,8 @@ class TestStage4Verification(unittest.TestCase):
                 
                 # Create a valid map that can be reshaped to (14, 14)
                 # This map has 196 elements (14x14) in the sequence dimension
-                attn_map = torch.ones(batch_size, 8, 196, 196)
+                # Use random values to avoid division by zero in normalization
+                attn_map = torch.rand(batch_size, 8, 196, 196)  # Random values between 0-1
                 
                 return [attn_map]
         
