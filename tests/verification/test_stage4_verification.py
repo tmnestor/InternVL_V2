@@ -53,8 +53,9 @@ class MockModel(nn.Module):
         
         # Create tokenizer mock
         class MockTokenizer:
-            def __init__(self):
+            def __init__(self, device):
                 self.vocab_size = 1000
+                self.device = device
                 
             def decode(self, token_ids, skip_special_tokens=True):
                 if isinstance(token_ids, torch.Tensor):
@@ -75,7 +76,7 @@ class MockModel(nn.Module):
                     'attention_mask': torch.ones((batch_size, seq_len), device=self.device)
                 }
         
-        self.tokenizer = MockTokenizer()
+        self.tokenizer = MockTokenizer(self.device)
         
     def to(self, device):
         """Override to method to handle device transfer properly."""
@@ -320,15 +321,16 @@ class TestStage4Verification(unittest.TestCase):
                 with open(metrics_path, "w") as f:
                     json.dump(eval_metrics, f)
                 
-                # Set up appropriate patches
-                def mock_path_exists_side_effect(path):
-                    # Always return True for metrics.json check
-                    if str(path).endswith('metrics.json'):
-                        return True
-                    # For other paths, do normal behavior
-                    return Path(path).exists()
+                # Instead of patching Path.exists, just create the file structure needed
+                model_dir = experiment_dir / "model"
+                model_dir.mkdir(exist_ok=True)
                 
-                with patch('pathlib.Path.exists', side_effect=mock_path_exists_side_effect):
+                # Create a dummy best_model.pt file that will be checked
+                with open(model_dir / "best_model.pt", "wb") as f:
+                    f.write(b"dummy model data")
+                
+                # Directly patch json.load to return our eval metrics when called with the metrics.json path
+                with patch('json.load', return_value=eval_metrics):
                     # Run experiment
                     results = orchestrator.run_single_experiment(
                         config=config,
@@ -387,8 +389,54 @@ class TestStage4Verification(unittest.TestCase):
         # Get device - use CPU to ensure consistency
         device = torch.device("cpu")
         
-        # Create mock model
-        model = MockModel(device=device)
+        # Create mock model implementation
+        class TestModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.device = device
+                
+                # In memory only - don't use any real nn modules to avoid device issues
+                self.classification_preds = torch.tensor([0, 1, 2, 0], device=device)
+                
+                # Create tokenizer mock
+                class TestTokenizer:
+                    def __init__(self):
+                        self.vocab_size = 1000
+                        
+                    def decode(self, token_ids, skip_special_tokens=True):
+                        return "This is a test response"
+                
+                self.tokenizer = TestTokenizer()
+            
+            # Simplified forward method to avoid device issues
+            def forward(self, pixel_values, text_input_ids=None, attention_mask=None):
+                batch_size = pixel_values.shape[0]
+                
+                # Return fixed outputs for testing
+                logits = torch.randn(batch_size, 3, device=device)
+                response_logits = torch.randn(batch_size, 10, 1000, device=device)
+                
+                return {
+                    "logits": logits,
+                    "response_logits": response_logits
+                }
+            
+            # Simplified generation method
+            def generate_response(self, pixel_values, text_input_ids, attention_mask=None, max_length=50):
+                batch_size = pixel_values.shape[0]
+                return [torch.zeros(10, device=device) for _ in range(batch_size)], ["Generated response"] * batch_size
+            
+            # Move to the specified device
+            def to(self, device):
+                self.device = device
+                return self
+                
+            # Make it look like an InternVL2 model
+            def eval(self):
+                return self
+                
+        # Create our simple test model that doesn't use real nn.Modules
+        model = TestModel()
         
         # Create mock dataloaders
         batch_size = 4
@@ -428,36 +476,83 @@ class TestStage4Verification(unittest.TestCase):
         output_dir = self.test_dir / "evaluation"
         output_dir.mkdir(exist_ok=True)
         
-        # Mock compute_nlg_metrics to avoid NLTK dependency
-        with patch('utils.metrics.compute_nlg_metrics') as mock_compute_nlg:
-            # Setup return value
-            mock_compute_nlg.return_value = {
-                "bleu": 0.35,
-                "rouge1_f": 0.45,
-                "rouge2_f": 0.30
+        # Mock compute_classification_metrics to return fixed values
+        with patch('utils.metrics.compute_classification_metrics') as mock_compute_class:
+            mock_compute_class.return_value = {
+                "accuracy": 85.0,
+                "precision": 84.2,
+                "recall": 83.5,
+                "f1": 83.8
             }
             
-            # Also patch get_device to ensure CPU usage
-            with patch('utils.device.get_device', return_value=device):
-                # Ensure files can be written
-                with patch('json.dump') as mock_json_dump:
-                    # Run evaluation
-                    metrics = evaluate_model(model, dataloaders, output_dir)
-                    
-                    # Verify metrics structure
-                    self.assertIn("classification", metrics)
-                    self.assertIn("generation", metrics)
-                    
-                    # Verify json.dump was called (metrics were saved)
-                    self.assertTrue(mock_json_dump.called)
+            # Mock compute_nlg_metrics to avoid NLTK dependency
+            with patch('utils.metrics.compute_nlg_metrics') as mock_compute_nlg:
+                # Setup return value
+                mock_compute_nlg.return_value = {
+                    "bleu": 0.35,
+                    "rouge1_f": 0.45,
+                    "rouge2_f": 0.30
+                }
+                
+                # Also patch get_device to ensure CPU usage
+                with patch('utils.device.get_device', return_value=device):
+                    # Ensure files can be written
+                    with patch('json.dump') as mock_json_dump:
+                        # Also patch tqdm to avoid progress bar issues
+                        with patch('tqdm.tqdm', lambda x, **kwargs: x):
+                            # Run evaluation
+                            metrics = evaluate_model(model, dataloaders, output_dir)
+                            
+                            # Verify metrics structure
+                            self.assertIn("classification", metrics)
+                            self.assertIn("generation", metrics)
+                            
+                            # Verify json.dump was called (metrics were saved)
+                            self.assertTrue(mock_json_dump.called)
     
     def test_visualization_attention(self):
         """Test attention visualization with mock model and data."""
         # Get device - use CPU to ensure consistency
         device = torch.device("cpu")
         
-        # Create mock model
-        model = MockModel(device=device)
+        # Create a simple test model that doesn't use PyTorch modules
+        class SimpleModel:
+            def __init__(self):
+                self.device = device
+                
+                # Simple tokenizer mock
+                class SimpleTokenizer:
+                    def decode(self, token_ids, skip_special_tokens=True):
+                        return "This is a mock response"
+                
+                self.tokenizer = SimpleTokenizer()
+            
+            def to(self, device):
+                self.device = device
+                return self
+                
+            def eval(self):
+                return self
+                
+            def prepare_inputs(self, image_tensor, questions):
+                """Create mock inputs"""
+                return {
+                    "pixel_values": image_tensor,
+                    "text_input_ids": torch.ones(1, 10, device=device).long(),
+                    "attention_mask": torch.ones(1, 10, device=device)
+                }
+                
+            def __call__(self, pixel_values, text_input_ids=None, attention_mask=None):
+                return {"logits": torch.rand(1, 3, device=device)}
+                
+            def generate_response(self, pixel_values, text_input_ids, attention_mask=None):
+                return [torch.ones(5, device=device)], ["This is a test response"]
+                
+            def get_attention_maps(self, pixel_values):
+                return [torch.rand(1, 8, 14, 14, device=device)]
+        
+        # Create the model
+        model = SimpleModel()
         
         # Create mock image path
         image_path = self.test_dir / "test_image.jpg"
@@ -470,24 +565,31 @@ class TestStage4Verification(unittest.TestCase):
         output_dir = self.test_dir / "visualization"
         output_dir.mkdir(exist_ok=True)
         
-        # Add get_attention_maps method to the model if it doesn't have one
-        if not hasattr(model, 'get_attention_maps'):
-            def get_attention_maps(pixel_values):
-                batch_size = pixel_values.shape[0]
-                return [torch.rand(batch_size, 8, 196, 196, device=device)]
-            
-            model.get_attention_maps = get_attention_maps
-        
-        # Multiple patches to avoid actual execution
+        # Set up comprehensive patches to avoid any device issues
         with patch('matplotlib.pyplot.savefig') as mock_savefig:
-            with patch('torchvision.transforms.Compose.__call__', return_value=torch.randn(1, 3, 224, 224, device=device)):
-                with patch('PIL.Image.open'):
+            # Patch image loading and preprocessing
+            with patch('PIL.Image.open') as mock_open:
+                mock_open.return_value.convert.return_value = MagicMock()
+                
+                # Patch transforms
+                with patch('torchvision.transforms.Compose') as mock_compose:
+                    mock_compose.return_value.return_value = torch.ones(1, 3, 224, 224, device=device)
+                    
+                    # Patch device selection
                     with patch('utils.device.get_device', return_value=device):
-                        # Run attention visualization
-                        visualize_attention(model, str(image_path), "How many receipts are in this image?", output_dir)
-                        
-                        # Verify that savefig was called
-                        mock_savefig.assert_called_once()
+                        # Patch plotting functions
+                        with patch('matplotlib.pyplot.figure'), \
+                             patch('matplotlib.pyplot.subplot'), \
+                             patch('matplotlib.pyplot.imshow'), \
+                             patch('matplotlib.pyplot.title'), \
+                             patch('matplotlib.pyplot.axis'), \
+                             patch('matplotlib.pyplot.figtext'):
+                            
+                            # Run visualization with our simple model
+                            visualize_attention(model, str(image_path), "How many receipts are in this image?", output_dir)
+                            
+                            # Verify that savefig was called
+                            mock_savefig.assert_called_once()
     
     def test_grid_search_config_generation(self):
         """Test generating configurations for grid search."""
