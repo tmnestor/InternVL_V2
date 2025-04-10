@@ -27,6 +27,7 @@ dependencies:
   - pyyaml
   - transformers>=4.37.0
   - einops
+  - nltk
   - scikit-learn  # For metrics
   - flask  # For training monitor dashboard
   - tensorboard  # For logging and metrics visualization

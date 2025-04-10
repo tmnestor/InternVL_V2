@@ -75,6 +75,8 @@ def compute_nlg_metrics(
     metrics = {}
     
     # Check if we have the required libraries
+    global NLTK_AVAILABLE  # Ensure we're using the global variable
+    
     if not NLTK_AVAILABLE:
         try:
             import nltk
@@ -83,7 +85,10 @@ def compute_nlg_metrics(
             from rouge import Rouge
             NLTK_AVAILABLE = True
         except ImportError:
-            return {"error": "NLTK or Rouge not available. Install with 'pip install nltk rouge'."}
+            # Keep NLTK_AVAILABLE as False and return a placeholder metric
+            return {"bleu": 0.0, "bleu1": 0.0, "bleu2": 0.0, "bleu3": 0.0, "bleu4": 0.0,
+                   "rouge1_f": 0.0, "rouge2_f": 0.0, "rougeL_f": 0.0,
+                   "error": "NLTK or Rouge not available. Install with 'pip install nltk rouge'."}
     
     # BLEU score calculation
     if NLTK_AVAILABLE:
