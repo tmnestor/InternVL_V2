@@ -11,6 +11,7 @@ dependencies:
   - pillow
   - matplotlib
   - tqdm
+  - flask
   # GPU configuration
   - pytorch>=2.0.0
   - torchvision
