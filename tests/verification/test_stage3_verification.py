@@ -45,18 +45,9 @@ class MockVisionEncoder(nn.Module):
         
         # Add transformer-like blocks with names that match the unfreezing logic
         self.transformer_blocks = nn.ModuleList([
-            nn.Sequential(
-                nn.LayerNorm(32),
-                nn.Conv2d(32, 32, kernel_size=3, padding=1),
-                nn.GELU(),
-                nn.Conv2d(32, 32, kernel_size=1)
-            ) for _ in range(3)
+            self._create_transformer_block(32, 32, i) 
+            for i in range(3)
         ])
-        
-        # Use proper naming for blocks to match the unfreezing logic
-        for i, block in enumerate(self.transformer_blocks):
-            block.add_module(f"attention_block_{i}", nn.Identity())
-            block.add_module(f"mlp_block_{i}", nn.Identity())
         
         # Output layers
         self.pool = nn.AdaptiveAvgPool2d((4, 4))
@@ -66,15 +57,48 @@ class MockVisionEncoder(nn.Module):
         # Config attribute
         self.config = type('', (), {})()
         self.config.hidden_size = hidden_size
+    
+    def _create_transformer_block(self, in_channels, out_channels, block_idx):
+        """Create a transformer block with properly named components."""
+        # Create a container for this block
+        block = nn.Module()
         
+        # Add attention component
+        attention = nn.Sequential(
+            nn.BatchNorm2d(in_channels),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.GELU()
+        )
+        block.add_module(f"attention_block_{block_idx}", attention)
+        
+        # Add MLP component
+        mlp = nn.Sequential(
+            nn.BatchNorm2d(out_channels),
+            nn.Conv2d(out_channels, out_channels, kernel_size=1),
+            nn.GELU()
+        )
+        block.add_module(f"mlp_block_{block_idx}", mlp)
+        
+        return block
+    
     def forward(self, pixel_values):
         x = self.conv(pixel_values)
         x = self.bn(x)
         x = self.relu(x)
         
         # Apply transformer blocks
-        for block in self.transformer_blocks:
-            x = x + block(x)  # Residual connection
+        for i, block in enumerate(self.transformer_blocks):
+            # Get the correct attribute name for this block
+            attention_name = f"attention_block_{i}"
+            mlp_name = f"mlp_block_{i}"
+            
+            # Apply attention with residual connection
+            attention_output = getattr(block, attention_name)(x)
+            x = x + attention_output  # Residual connection for attention
+            
+            # Apply MLP with residual connection
+            mlp_output = getattr(block, mlp_name)(x)
+            x = x + mlp_output  # Residual connection for MLP
             
         x = self.pool(x)
         x = self.flatten(x)
@@ -196,8 +220,13 @@ class TestTrainingPipeline(unittest.TestCase):
             self.output_dir = Path(output_dir)
             self.output_dir.mkdir(parents=True, exist_ok=True)
             
-            # Get logger
-            self.logger = type('', (), {'info': print, 'warning': print, 'error': print})()
+            # Get logger - make sure to add all required methods
+            self.logger = type('', (), {
+                'info': print, 
+                'warning': print, 
+                'error': print,
+                'debug': print  # Add debug method for _unfreeze_vision_encoder
+            })()
             
             # Set critical attributes first
             self.epochs = config["training"]["epochs"]
@@ -421,7 +450,13 @@ class TestTrainingPipeline(unittest.TestCase):
             def __init__(self, config):
                 super().__init__()
                 self.config = config
-                self.logger = type('', (), {'info': print, 'warning': print, 'error': print})()
+                # Full mock logger with all required methods
+                self.logger = type('', (), {
+                    'info': print, 
+                    'warning': print, 
+                    'error': print,
+                    'debug': print
+                })()
                 self.vision_encoder = MockVisionEncoder()
                 self.classification_head = nn.Linear(512, 3)
             
@@ -451,7 +486,13 @@ class TestTrainingPipeline(unittest.TestCase):
             def __init__(self, config):
                 super().__init__()
                 self.config = config
-                self.logger = type('', (), {'info': print, 'warning': print, 'error': print})()
+                # Full mock logger with all required methods
+                self.logger = type('', (), {
+                    'info': print, 
+                    'warning': print, 
+                    'error': print,
+                    'debug': print
+                })()
                 
                 # Model components
                 hidden_size = 512
