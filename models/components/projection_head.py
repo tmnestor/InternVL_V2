@@ -279,10 +279,10 @@ class ResponseGenerator(nn.Module):
             prev_dim = hidden_dim
         
         # Feature transformer (processes multimodal features)
-        self.mlp = nn.Sequential(*layers)
+        self.feature_transformer = nn.Sequential(*layers)
         
         # Output projection to vocabulary
-        self.output_proj = nn.Linear(prev_dim, vocab_size)
+        self.lm_head = nn.Linear(prev_dim, vocab_size)
     
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
@@ -295,10 +295,10 @@ class ResponseGenerator(nn.Module):
             Dictionary with logits tensor [batch_size, seq_len, vocab_size]
         """
         # Process features
-        transformed = self.mlp(x)  # [B, L, H]
+        transformed = self.feature_transformer(x)  # [B, L, H]
         
         # Generate logits for each token position
-        logits = self.output_proj(transformed)  # [B, L, V]
+        logits = self.lm_head(transformed)  # [B, L, V]
         
         return {
             "logits": logits,
@@ -354,15 +354,15 @@ class ResponseGenerator(nn.Module):
             if i > seq_len:
                 # Use just the last generated token
                 last_token_pos = -1
-                transformed = self.mlp(
+                transformed = self.feature_transformer(
                     torch.cat([multimodal_context[:, 0, :], inputs[:, last_token_pos].unsqueeze(1)], dim=1)
                 )  # [B, H]
             else:
                 # Initial case, use the multimodal context directly
-                transformed = self.mlp(multimodal_context[:, 0, :])  # [B, H]
+                transformed = self.feature_transformer(multimodal_context[:, 0, :])  # [B, H]
             
             # Generate logits
-            logits = self.output_proj(transformed)  # [B, V]
+            logits = self.lm_head(transformed)  # [B, V]
             
             # Apply temperature
             logits = logits / temperature
@@ -396,4 +396,9 @@ class ResponseGenerator(nn.Module):
             # Append to generated sequence
             generated = torch.cat([generated, next_token], dim=1)
         
-        return generated
+        # Convert tensor to list of token lists as expected by the test
+        generated_lists = []
+        for i in range(generated.shape[0]):
+            generated_lists.append(generated[i].tolist())
+        
+        return generated_lists
