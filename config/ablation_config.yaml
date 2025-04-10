@@ -1,0 +1,35 @@
+# Ablation study configuration for Phase 4
+# Defines parameters to ablate and their values
+
+# Base name for experiments
+base_name: "ablation"
+
+# Random seeds to use
+seeds: [42]
+
+# Parameters to ablate and their values
+ablation_params:
+  # Test importance of loss weights
+  "training.loss_weights.classification": [0.0, 0.5, 2.0, 5.0]
+  "training.loss_weights.language": [0.0, 0.5, 2.0, 5.0]
+  
+  # Test importance of stage transitions
+  "training.three_stage.enabled": [false]
+  
+  # Test importance of vision encoder features
+  "model.freeze_vision_encoder": [true]
+  
+  # Test importance of cross-attention
+  "model.cross_attention.num_heads": [1, 4, 16]
+  
+  # Test with different sequence lengths
+  "data.max_text_length": [64, 256]
+  
+  # Test with/without data augmentation
+  "data.augmentation": [false]
+
+# Metrics to focus on during analysis
+focus_metrics:
+  - classification_accuracy
+  - generation_bleu
+  - generation_rouge1_f
