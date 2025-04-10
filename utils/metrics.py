@@ -11,13 +11,17 @@ import numpy as np
 import torch
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 
+# Define global flag for NLTK availability
+NLTK_AVAILABLE = False
+
 # Import NLG metrics if available
 try:
     from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
     from rouge import Rouge
     NLTK_AVAILABLE = True
 except ImportError:
-    NLTK_AVAILABLE = False
+    # NLTK_AVAILABLE is already set to False by default
+    pass
 
 
 def compute_classification_metrics(

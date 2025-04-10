@@ -35,12 +35,35 @@ class MockVisionEncoder(nn.Module):
     """Mock vision encoder for testing."""
     def __init__(self, hidden_size=512):
         super().__init__()
+        # Create a more realistic structure with named blocks/layers
+        # that will be matched by the unfreeze logic
+        
+        # Initial convolutional layer
         self.conv = nn.Conv2d(3, 32, kernel_size=3, stride=2, padding=1)
         self.bn = nn.BatchNorm2d(32)
         self.relu = nn.ReLU()
+        
+        # Add transformer-like blocks with names that match the unfreezing logic
+        self.transformer_blocks = nn.ModuleList([
+            nn.Sequential(
+                nn.LayerNorm(32),
+                nn.Conv2d(32, 32, kernel_size=3, padding=1),
+                nn.GELU(),
+                nn.Conv2d(32, 32, kernel_size=1)
+            ) for _ in range(3)
+        ])
+        
+        # Use proper naming for blocks to match the unfreezing logic
+        for i, block in enumerate(self.transformer_blocks):
+            block.add_module(f"attention_block_{i}", nn.Identity())
+            block.add_module(f"mlp_block_{i}", nn.Identity())
+        
+        # Output layers
         self.pool = nn.AdaptiveAvgPool2d((4, 4))
         self.flatten = nn.Flatten(1)
-        self.fc = nn.Linear(32 * 4 * 4, hidden_size)
+        self.output_layer = nn.Linear(32 * 4 * 4, hidden_size)
+        
+        # Config attribute
         self.config = type('', (), {})()
         self.config.hidden_size = hidden_size
         
@@ -48,9 +71,15 @@ class MockVisionEncoder(nn.Module):
         x = self.conv(pixel_values)
         x = self.bn(x)
         x = self.relu(x)
+        
+        # Apply transformer blocks
+        for block in self.transformer_blocks:
+            x = x + block(x)  # Residual connection
+            
         x = self.pool(x)
         x = self.flatten(x)
-        x = self.fc(x)
+        x = self.output_layer(x)
+        
         # Reshape to match expected output shape [batch_size, seq_len, hidden_size]
         x = x.unsqueeze(1).expand(-1, 16, -1)  # Expand to 16 sequence length
         return type('', (), {'last_hidden_state': x})()
@@ -703,41 +732,21 @@ class TestTrainingPipeline(unittest.TestCase):
         for param in multimodal_model.vision_encoder.parameters():
             self.assertFalse(param.requires_grad, "Vision encoder should be frozen in Stage 1")
         
-        # Create a patched version of _unfreeze_vision_encoder for testing
-        original_unfreeze = multimodal_trainer._unfreeze_vision_encoder
-        
-        def patched_unfreeze(lr_multiplier=0.1):
-            # Call the original method
-            unfrozen = original_unfreeze(lr_multiplier)
-            
-            # If no parameters were unfrozen by the original method,
-            # ensure at least one parameter is unfrozen for the test
-            if len(unfrozen) == 0:
-                # Unfreeze at least one parameter from vision_encoder for test
-                for param in multimodal_model.vision_encoder.parameters():
-                    param.requires_grad = True
-                    unfrozen.append(param)
-                    break
-                    
-            return unfrozen
-        
-        # Apply the patch temporarily
-        multimodal_trainer._unfreeze_vision_encoder = patched_unfreeze
-        
-        # Test stage 2 transition (with patched method)
+        # Test stage 2 transition with the real methods (no patching)
+        # The updated MockVisionEncoder should have parameter names that 
+        # match what _unfreeze_vision_encoder is looking for
         unfrozen_params = multimodal_trainer._unfreeze_vision_encoder(lr_multiplier=0.1)
         
-        # Restore original method
-        multimodal_trainer._unfreeze_vision_encoder = original_unfreeze
-        
         # Verify some parameters were unfrozen
-        self.assertGreater(len(unfrozen_params), 0)
+        self.assertGreater(len(unfrozen_params), 0, 
+                          "Expected some parameters to be unfrozen, check the _unfreeze_vision_encoder implementation")
         
         # Test stage transition by directly calling _configure_optimizer
         stage2_optimizer = multimodal_trainer._configure_optimizer(stage=2)
         
         # Verify multiple parameter groups with different learning rates
-        self.assertGreater(len(stage2_optimizer.param_groups), 1)
+        self.assertGreater(len(stage2_optimizer.param_groups), 1, 
+                          "Expected multiple parameter groups for Stage 2 optimizer")
         
         # Check that at least one vision encoder parameter is unfrozen
         any_unfrozen = False
@@ -898,52 +907,29 @@ class TestTrainingPipeline(unittest.TestCase):
         output_dir = self.test_dir / "multimodal_output" 
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Patch compute_nlg_metrics to avoid NLTK dependency issues
-        import utils.metrics
-        original_compute_nlg_metrics = utils.metrics.compute_nlg_metrics
+        # Create the trainer - no patching of metrics needed as we've fixed metrics.py
+        multimodal_trainer = MultimodalTrainer(
+            config=self.multimodal_config,
+            model=multimodal_model,
+            dataloaders=mock_dataloaders,
+            output_dir=output_dir
+        )
         
-        def mocked_compute_nlg_metrics(predictions, references, max_order=4):
-            # Return fixed metrics without computing BLEU/ROUGE
-            return {
-                "bleu": 0.5 * 100,
-                "bleu1": 0.7 * 100,
-                "bleu2": 0.6 * 100,
-                "bleu3": 0.5 * 100,
-                "bleu4": 0.4 * 100,
-                "rouge1_f": 0.6 * 100,
-                "rouge2_f": 0.5 * 100,
-                "rougeL_f": 0.4 * 100
-            }
+        # Run one training epoch
+        train_metrics = multimodal_trainer.train_epoch(epoch=1)
         
-        # Apply patch
-        utils.metrics.compute_nlg_metrics = mocked_compute_nlg_metrics
+        # Verify outputs
+        self.assertIn("loss", train_metrics)
+        self.assertIn("accuracy", train_metrics)
+        self.assertIn("bleu", train_metrics)
         
-        try:
-            multimodal_trainer = MultimodalTrainer(
-                config=self.multimodal_config,
-                model=multimodal_model,
-                dataloaders=mock_dataloaders,
-                output_dir=output_dir
-            )
-            
-            # Run one training epoch
-            train_metrics = multimodal_trainer.train_epoch(epoch=1)
-            
-            # Verify outputs
-            self.assertIn("loss", train_metrics)
-            self.assertIn("accuracy", train_metrics)
-            self.assertIn("bleu", train_metrics)
-            
-            # Run validation
-            val_metrics = multimodal_trainer.validate(epoch=1)
-            
-            # Verify outputs
-            self.assertIn("loss", val_metrics)
-            self.assertIn("accuracy", val_metrics)
-            self.assertIn("bleu", val_metrics)
-        finally:
-            # Restore original function
-            utils.metrics.compute_nlg_metrics = original_compute_nlg_metrics
+        # Run validation
+        val_metrics = multimodal_trainer.validate(epoch=1)
+        
+        # Verify outputs
+        self.assertIn("loss", val_metrics)
+        self.assertIn("accuracy", val_metrics)
+        self.assertIn("bleu", val_metrics)
     
     def test_checkpoint_saving(self):
         """Verify that checkpoints are saved correctly."""
