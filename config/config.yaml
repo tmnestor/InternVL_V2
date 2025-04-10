@@ -22,7 +22,7 @@ data:
 model:
   name: "internvl2"
   # Absolute path to the pre-downloaded model
-  pretrained_path: "/home/jovyan/nfs_share/tod/InternVL2_5-1B"  # Updated to cloud path
+  pretrained_path: "/home/jovyan/nfs_share/models/huggingface/hub/InternVL2_5-1B"  # Updated to cloud path
   use_8bit: false  # Disable 8-bit quantization to avoid issues
   classifier:
     hidden_dims: [1536, 768, 256]
