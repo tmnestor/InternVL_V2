@@ -512,99 +512,96 @@ class TestStage4Verification(unittest.TestCase):
     
     def test_visualization_attention(self):
         """Test attention visualization with mock model and data."""
-        # Get device - use CPU to ensure consistency
-        device = torch.device("cpu")
+        # Create output directory for visualization
+        output_dir = self.test_dir / "visualization"
+        output_dir.mkdir(exist_ok=True)
         
-        # Create a simple test model that doesn't use PyTorch modules
+        # Create an actual test image
+        image_path = self.test_dir / "test_image.jpg"
+        img = np.ones((224, 224, 3), dtype=np.uint8) * 255
+        plt.imsave(str(image_path), img)
+        
+        # Define a minimal but functional model class
         class SimpleModel:
             def __init__(self):
-                self.device = device
-                
-                # Simple tokenizer mock
+                # Create minimal working tokenizer
                 class SimpleTokenizer:
-                    def __init__(self):
-                        self.device = device
-                        
                     def decode(self, token_ids, skip_special_tokens=True):
-                        return "This is a mock response"
+                        return "This is a test response"
                 
                 self.tokenizer = SimpleTokenizer()
             
             def to(self, device):
-                self.device = device
+                # Device handling - just return self
                 return self
                 
             def eval(self):
+                # Evaluation mode - just return self
                 return self
                 
             def prepare_inputs(self, image_tensor, questions):
-                """Create mock inputs"""
+                # Simple working inputs
+                if isinstance(questions, str):
+                    questions = [questions]
                 return {
                     "pixel_values": image_tensor,
-                    "text_input_ids": torch.ones(1, 10, device=device).long(),
-                    "attention_mask": torch.ones(1, 10, device=device)
+                    "text_input_ids": torch.ones(len(questions), 10).long(),
+                    "attention_mask": torch.ones(len(questions), 10)
                 }
                 
             def __call__(self, pixel_values, text_input_ids=None, attention_mask=None):
-                return {"logits": torch.rand(1, 3, device=device)}
+                # Simple output with logits
+                return {"logits": torch.rand(pixel_values.shape[0], 3)}
                 
             def generate_response(self, pixel_values, text_input_ids, attention_mask=None):
-                return [torch.ones(5, device=device)], ["This is a test response"]
+                # Return valid generated text
+                batch_size = pixel_values.shape[0]
+                return [torch.ones(10) for _ in range(batch_size)], ["This is a test response"] * batch_size
                 
             def get_attention_maps(self, pixel_values):
-                # Create a proper shape for attention maps that can be reshaped to (14, 14)
-                # Return a tensor with shape [batch_size, num_heads, seq_len, seq_len]
-                # where seq_len = 196 (14*14)
-                # The key is that the attention map needs to be properly shaped so that
-                # after averaging, it can be reshaped to (14, 14) for visualization
-                attn_map = torch.rand(1, 8, 196, 196, device=device)
+                # Return valid attention map that can be properly processed
+                # Create a correctly shaped tensor that works with the visualization function
+                batch_size = pixel_values.shape[0]
+                
+                # Create a valid map that can be reshaped to (14, 14)
+                # This map has 196 elements (14x14) in the sequence dimension
+                attn_map = torch.ones(batch_size, 8, 196, 196)
+                
                 return [attn_map]
         
-        # Create the model
+        # Create our simple model
         model = SimpleModel()
         
-        # Create mock image path
-        image_path = self.test_dir / "test_image.jpg"
-        
-        # Create a blank test image
-        img = np.ones((224, 224, 3), dtype=np.uint8) * 255
-        plt.imsave(image_path, img)
-        
-        # Create output directory
-        output_dir = self.test_dir / "visualization"
-        output_dir.mkdir(exist_ok=True)
-        
-        # Set up comprehensive patches to avoid any device issues
+        # Only patch the IO operations that would cause side effects
+        # but let the actual code logic run
         with patch('matplotlib.pyplot.savefig') as mock_savefig:
-            # Patch image loading and preprocessing
+            # Only patch file IO and display operations
             with patch('PIL.Image.open') as mock_open:
-                mock_open.return_value.convert.return_value = MagicMock()
+                # Return a valid image that can be processed
+                mock_img = MagicMock()
+                mock_img.convert.return_value = mock_img
+                mock_open.return_value = mock_img
                 
-                # Patch transforms
+                # Patch transform to return a valid tensor
                 with patch('torchvision.transforms.Compose') as mock_compose:
-                    mock_compose.return_value.return_value = torch.ones(1, 3, 224, 224, device=device)
+                    mock_compose.return_value.return_value = torch.ones(1, 3, 224, 224)
                     
-                    # Patch device selection
-                    with patch('utils.device.get_device', return_value=device):
-                        # Mock the numpy reshape method to handle any input and return a properly sized array
-                        def mock_reshape(*args, **kwargs):
-                            # Always return a 14x14 array regardless of input
-                            return np.ones((14, 14))
+                    # Patch device operations to avoid CUDA errors
+                    with patch('utils.device.get_device', return_value=torch.device("cpu")):
+                        # Only patch the actual display functions
+                        with patch('matplotlib.pyplot.figure'), \
+                             patch('matplotlib.pyplot.subplot'), \
+                             patch('matplotlib.pyplot.imshow'), \
+                             patch('matplotlib.pyplot.title'), \
+                             patch('matplotlib.pyplot.axis'), \
+                             patch('matplotlib.pyplot.figtext'):
                             
-                        with patch('numpy.ndarray.reshape', mock_reshape):
-                            # Patch plotting functions
-                            with patch('matplotlib.pyplot.figure'), \
-                                 patch('matplotlib.pyplot.subplot'), \
-                                 patch('matplotlib.pyplot.imshow'), \
-                                 patch('matplotlib.pyplot.title'), \
-                                 patch('matplotlib.pyplot.axis'), \
-                                 patch('matplotlib.pyplot.figtext'):
-                                
-                                # Run visualization with our simple model
-                                visualize_attention(model, str(image_path), "How many receipts are in this image?", output_dir)
-                                
-                                # Verify that savefig was called
-                                mock_savefig.assert_called_once()
+                            # Run the actual visualization code with our working model
+                            from scripts.evaluate_multimodal import visualize_attention
+                            visualize_attention(model, str(image_path), "How many receipts are in this image?", output_dir)
+                            
+                            # Verify savefig was called - confirms visualization worked
+                            mock_savefig.assert_called_once()
     
     def test_grid_search_config_generation(self):
         """Test generating configurations for grid search."""
