@@ -12,6 +12,9 @@ import os
 import sys
 from pathlib import Path
 
+# Set tokenizers parallelism to False to avoid warning
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import torch
 import yaml
 
@@ -54,9 +57,16 @@ def main():
     logger.info(f"Using device: {get_device()}")
     logger.info(f"PyTorch version: {torch.__version__}")
     logger.info(f"CUDA available: {torch.cuda.is_available()}")
+    
+    # Detailed GPU information
     if torch.cuda.is_available():
         logger.info(f"CUDA version: {torch.version.cuda}")
-        logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
+        for i in range(torch.cuda.device_count()):
+            logger.info(f"GPU {i}: {torch.cuda.get_device_name(i)}")
+            logger.info(f"  Capability: {torch.cuda.get_device_capability(i)}")
+            logger.info(f"  Memory: {torch.cuda.get_device_properties(i).total_memory / 1e9:.2f} GB")
+    else:
+        logger.info("No CUDA-compatible GPU found")
     
     # Set random seed
     set_seed(args.seed)

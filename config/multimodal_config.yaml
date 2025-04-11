@@ -28,7 +28,7 @@ data:
   test_csv: "data/multimodal/test/metadata.csv"
   test_dir: "data/multimodal/test/images"
   batch_size: 16
-  num_workers: 4
+  num_workers: 1
   image_size: 448  # InternVL2 default size
   augmentation: true
   max_text_length: 128  # Maximum length for text sequences
@@ -40,7 +40,7 @@ training:
   weight_decay: 1.0e-4
   warmup_steps: 500
   gradient_accumulation_steps: 1
-  flash_attention: true  # Use Flash Attention if available
+  flash_attention: false  # Disable Flash Attention since it's not available
   fp16: false  # Disable mixed precision training for better stability
   gradient_clip: 1.0  # Gradient clipping value
   torch_compile: false  # Enable/disable torch.compile optimization

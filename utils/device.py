@@ -55,9 +55,14 @@ def get_device_properties() -> dict:
     Returns:
         Dictionary with device properties
     """
-    properties = {"device_count": torch.cuda.device_count()}
+    properties = {
+        "device_count": torch.cuda.device_count(),
+        "pytorch_version": torch.__version__,
+        "cuda_available": torch.cuda.is_available()
+    }
     
     if torch.cuda.is_available():
+        properties["cuda_version"] = torch.version.cuda
         properties["current_device"] = torch.cuda.current_device()
         properties["devices"] = []
         
@@ -69,5 +74,21 @@ def get_device_properties() -> dict:
                 "memory_available": torch.cuda.memory_reserved(i) / (1024**3),  # GB
             }
             properties["devices"].append(device_props)
+    else:
+        properties["cpu_info"] = "No CUDA-compatible GPU found"
     
     return properties
+
+
+def print_gpu_info():
+    """
+    Print detailed information about available GPUs.
+    """
+    if torch.cuda.is_available():
+        print(f"CUDA version: {torch.version.cuda}")
+        for i in range(torch.cuda.device_count()):
+            print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
+            print(f"  Capability: {torch.cuda.get_device_capability(i)}")
+            print(f"  Memory: {torch.cuda.get_device_properties(i).total_memory / 1e9:.2f} GB")
+    else:
+        print("No CUDA-compatible GPU found")

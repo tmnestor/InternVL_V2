@@ -67,8 +67,20 @@ def main():
     logger = setup_logger(log_level, log_file)
     
     # Print device information
+    from utils.device import print_gpu_info
     device_info = get_device_properties()
     logger.info(f"Device: {device_info}")
+    
+    # More readable GPU information
+    logger.info("GPU Information:")
+    if torch.cuda.is_available():
+        logger.info(f"CUDA version: {torch.version.cuda}")
+        for i in range(torch.cuda.device_count()):
+            logger.info(f"GPU {i}: {torch.cuda.get_device_name(i)}")
+            logger.info(f"  Capability: {torch.cuda.get_device_capability(i)}")
+            logger.info(f"  Memory: {torch.cuda.get_device_properties(i).total_memory / 1e9:.2f} GB")
+    else:
+        logger.info("No CUDA-compatible GPU found")
     
     # Set random seed
     if "seed" in config:
