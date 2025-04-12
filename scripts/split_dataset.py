@@ -3,12 +3,12 @@
 Script to split the receipt dataset into train, validation, and test sets.
 Ensures stratified sampling based on receipt counts to maintain class balance.
 """
-import os
-import pandas as pd
-import numpy as np
-from pathlib import Path
-from sklearn.model_selection import train_test_split
 import argparse
+import os
+
+import pandas as pd
+from sklearn.model_selection import train_test_split
+
 
 def main(args):
     """Split the dataset into train, val, and test sets with stratification."""
@@ -55,17 +55,17 @@ def main(args):
     test_df.to_csv(test_path, index=False)
     
     # Print statistics
-    print(f"\nDataset split complete!")
+    print("\nDataset split complete!")
     print(f"Train set: {len(train_df)} samples ({100 * len(train_df) / len(metadata):.1f}%)")
     print(f"Validation set: {len(val_df)} samples ({100 * len(val_df) / len(metadata):.1f}%)")
     print(f"Test set: {len(test_df)} samples ({100 * len(test_df) / len(metadata):.1f}%)")
     
-    print(f"\nClass distribution for training set:")
+    print("\nClass distribution for training set:")
     train_class_counts = train_df['receipt_count'].apply(lambda x: min(x, 2)).value_counts().sort_index()
     for cls, count in train_class_counts.items():
         print(f"  Class {cls}: {count} samples ({100 * count / len(train_df):.1f}%)")
     
-    print(f"\nFiles saved to:")
+    print("\nFiles saved to:")
     print(f"  {train_path}")
     print(f"  {val_path}")
     print(f"  {test_path}")
