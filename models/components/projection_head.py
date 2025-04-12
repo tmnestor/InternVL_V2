@@ -176,9 +176,12 @@ class CrossAttention(nn.Module):
         v = self.v_proj(value)  # [B, Lv, E]
         
         # Reshape for multi-head attention
-        q = q.view(batch_size, seq_len_q, self.num_heads, self.head_dim).permute(0, 2, 1, 3)  # [B, H, Lq, D]
-        k = k.view(batch_size, seq_len_k, self.num_heads, self.head_dim).permute(0, 2, 1, 3)  # [B, H, Lk, D]
-        v = v.view(batch_size, seq_len_k, self.num_heads, self.head_dim).permute(0, 2, 1, 3)  # [B, H, Lv, D]
+        # [B, H, Lq, D]
+        q = q.view(batch_size, seq_len_q, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+        # [B, H, Lk, D]
+        k = k.view(batch_size, seq_len_k, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+        # [B, H, Lv, D]
+        v = v.view(batch_size, seq_len_k, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
         
         # Compute scaled dot-product attention
         scale = self.head_dim ** -0.5
@@ -354,7 +357,7 @@ class ResponseGenerator(nn.Module):
             
             # Get features for the last position
             if i > seq_len:
-                # Use just the last generated token - but don't try to concatenate tensors of different dimensions
+                # Use just the last generated token - don't try to concatenate tensors of different dims
                 # Instead, just use the multimodal context for simplicity in testing
                 transformed = self.feature_transformer(multimodal_context[:, 0, :])  # [B, D]
             else:

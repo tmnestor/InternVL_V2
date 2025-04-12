@@ -1,0 +1,82 @@
+seed: 42
+deterministic: true
+debug: false
+log_level: info
+data:
+  image_size: 448
+  batch_size: 2
+  num_workers: 2
+  augmentation: true
+  class_distribution:
+  - 0.3
+  - 0.3
+  - 0.4
+  train_csv: datasets/synthetic_receipts/metadata.csv
+  train_dir: datasets/synthetic_receipts/images
+  val_csv: datasets/synthetic_receipts/metadata.csv
+  val_dir: datasets/synthetic_receipts/images
+  test_csv: datasets/synthetic_receipts/metadata.csv
+  test_dir: datasets/synthetic_receipts/images
+model:
+  name: internvl2
+  pretrained_path: /Users/tod/PretrainedLLM/InternVL2_5-1B
+  use_8bit: false
+  classifier:
+    hidden_dims:
+    - 1536
+    - 768
+    - 256
+    dropout_rates:
+    - 0.4
+    - 0.3
+    - 0.2
+    batch_norm: true
+    activation: gelu
+  num_classes: 3
+training:
+  epochs: 20
+  early_stopping:
+    patience: 2
+    min_delta: 0.001
+  optimizer:
+    name: adamw
+    learning_rate: 5e-4
+    backbone_lr_multiplier: 0.02
+    weight_decay: 0.01
+    gradient_clip: 1.0
+  scheduler:
+    name: cosine
+    warmup_epochs: 1
+    min_lr_factor: 0.01
+  loss:
+    name: cross_entropy
+    label_smoothing: 0.1
+  mixed_precision: false
+  mixed_precision_dtype: float16
+  torch_compile: false
+  compile_mode: reduce-overhead
+  compile_full_precision_only: true
+  flash_attention: false
+  three_stage:
+    enabled: true
+    mlp_warmup_epochs: 5
+    vision_tuning_epochs: 2
+evaluation:
+  metrics:
+  - accuracy
+  - balanced_accuracy
+  - f1_score
+  - precision
+  - recall
+  confusion_matrix: true
+  class_report: true
+  visualization: true
+  calibration: true
+  samples_to_visualize: 20
+output:
+  model_dir: models/vision_only
+  log_dir: logs
+  results_dir: results
+  tensorboard: true
+  checkpoint_frequency: 1
+  save_best_only: true

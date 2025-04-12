@@ -22,7 +22,8 @@ data:
 model:
   name: "internvl2"
   # Absolute path to the pre-downloaded model
-  pretrained_path: "/home/jovyan/nfs_share/models/huggingface/hub/InternVL2_5-1B"  # Updated to cloud path
+  # pretrained_path: "/home/jovyan/nfs_share/models/huggingface/hub/InternVL2_5-1B"  # Updated to cloud path
+  pretrained_path: "/Users/tod/PretrainedLLM/InternVL2_5-1B"
   use_8bit: false  # Disable 8-bit quantization to avoid issues
   classifier:
     hidden_dims: [1536, 768, 256]
@@ -39,13 +40,13 @@ training:
     min_delta: 0.001
   optimizer:
     name: "adamw"
-    learning_rate: 5e-5
-    backbone_lr_multiplier: 0.01  # Reduced from 0.1 to prevent catastrophic forgetting
+    learning_rate: 5e-4
+    backbone_lr_multiplier: 0.02  # Reduced from 0.1 to prevent catastrophic forgetting
     weight_decay: 0.01
     gradient_clip: 1.0  # Re-enabled for non-mixed-precision training
   scheduler:
     name: "cosine"
-    warmup_epochs: 3
+    warmup_epochs: 1
     min_lr_factor: 0.01
   loss:
     name: "cross_entropy"
@@ -56,7 +57,7 @@ training:
   torch_compile: false  # Disable for now due to dtype compatibility issues
   compile_mode: "reduce-overhead"  # Options: "reduce-overhead", "max-autotune", or "default"
   compile_full_precision_only: true  # Only use compile when not using mixed precision
-  flash_attention: true  # Use Flash Attention if available
+  flash_attention: false  # Disabled since Flash Attention is not installed
   three_stage:
     enabled: true
     mlp_warmup_epochs: 5  # Training only classification head

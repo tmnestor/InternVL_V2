@@ -62,7 +62,9 @@ class InternVL2ReceiptClassifier(nn.Module):
         
         # Verify the path exists
         if not Path(pretrained_path).exists():
-            raise ValueError(f"Model path does not exist: {pretrained_path}. Please provide a valid path to the pre-downloaded model.")
+            raise ValueError(
+                f"Model path does not exist: {pretrained_path}. Please provide a valid path to the model."
+            )
         
         if pretrained:
             self.logger.info(f"Loading model from local path: {pretrained_path}")
@@ -81,7 +83,10 @@ class InternVL2ReceiptClassifier(nn.Module):
                     self.logger.info("Using Flash Attention for faster training")
                     kwargs["attn_implementation"] = "flash_attention_2"
                 else:
-                    self.logger.warning("Flash Attention requested but not available. Install with: CUDA_HOME=/usr/local/cuda pip install flash-attn>=2.5.0")
+                    self.logger.warning(
+                        "Flash Attention requested but not available. "
+                        "Install with: CUDA_HOME=/usr/local/cuda pip install flash-attn>=2.5.0"
+                    )
             
             # Set precision based on hardware
             if torch.cuda.is_available():
@@ -146,13 +151,21 @@ class InternVL2ReceiptClassifier(nn.Module):
                 if hasattr(self.model.config, "use_sliding_window"):
                     self.model.config.use_sliding_window = False
                     self.logger.info("Disabled sliding window attention in model config")
+                if hasattr(self.model.config, "gradient_checkpointing"):
+                    self.model.config.gradient_checkpointing = False
+                    self.logger.info("Disabled gradient checkpointing in model config")
                     
             if hasattr(self.vision_encoder, "config"):
                 if hasattr(self.vision_encoder.config, "use_sliding_window"):
                     self.vision_encoder.config.use_sliding_window = False
                     self.logger.info("Disabled sliding window attention in vision encoder config")
+                if hasattr(self.vision_encoder.config, "gradient_checkpointing"):
+                    self.vision_encoder.config.gradient_checkpointing = False
+                    self.logger.info("Disabled gradient checkpointing in vision encoder config")
         except Exception as e:
-            self.logger.warning(f"Could not disable sliding window attention: {e}")
+            self.logger.warning(
+                f"Could not disable sliding window attention or gradient checkpointing: {e}"
+            )
         
         # Get vision encoder output dimension (do this before creating classification head)
         vision_hidden_size = 512  # Default fallback size
@@ -232,7 +245,11 @@ class InternVL2ReceiptClassifier(nn.Module):
         # Use a very low learning rate for vision encoder to prevent catastrophic forgetting
         return [
             {'params': self.classification_head.parameters()},  # Full learning rate
-            {'params': [p for p in self.vision_encoder.parameters() if p.requires_grad], 'lr': lr_multiplier}  # Reduced LR
+            # Reduced LR for vision encoder
+            {
+                'params': [p for p in self.vision_encoder.parameters() if p.requires_grad], 
+                'lr': lr_multiplier
+            }
         ]
     
     def forward(self, pixel_values: torch.Tensor) -> Dict[str, torch.Tensor]:
@@ -286,9 +303,14 @@ class InternVL2ReceiptClassifier(nn.Module):
                 elif hasattr(vision_outputs, 'hidden_states'):
                     image_embeds = vision_outputs.hidden_states[-1]
                 else:
-                    raise ValueError(f"Could not extract image embeddings from model outputs: {type(vision_outputs)}")
+                    raise ValueError(
+                        f"Could not extract image embeddings from model outputs: {type(vision_outputs)}"
+                    )
             except Exception as e2:
-                self.logger.error(f"Second attempt failed with error: {e2}. Using a simplified vision encoder for testing.")
+                self.logger.error(
+                    f"Second attempt failed with error: {e2}. " 
+                    f"Using a simplified vision encoder for testing."
+                )
                 
                 # Create a simple CNN feature extractor as fallback
                 if not hasattr(self, '_fallback_encoder'):
@@ -305,7 +327,9 @@ class InternVL2ReceiptClassifier(nn.Module):
                     for param in self._fallback_encoder.parameters():
                         param.requires_grad = False
                     # Convert to the right dtype
-                    self._fallback_encoder = self._fallback_encoder.to(pixel_values.dtype).to(pixel_values.device)
+                    self._fallback_encoder = self._fallback_encoder.to(
+                        pixel_values.dtype
+                    ).to(pixel_values.device)
                     
                 # Get features from the fallback encoder
                 features = self._fallback_encoder(pixel_values)
@@ -322,8 +346,10 @@ class InternVL2ReceiptClassifier(nn.Module):
                 # Pad to 256 tokens if needed
                 if features.shape[1] < 256:
                     pad_size = 256 - features.shape[1]
-                    padding = torch.zeros(batch_size, pad_size, features.shape[-1], 
-                                         dtype=features.dtype, device=features.device)
+                    padding = torch.zeros(
+                        batch_size, pad_size, features.shape[-1], 
+                        dtype=features.dtype, device=features.device
+                    )
                     features = torch.cat([features, padding], dim=1)
                 
                 image_embeds = features
@@ -338,10 +364,14 @@ class InternVL2ReceiptClassifier(nn.Module):
                 if hasattr(self.classification_head.mlp[0], 'weight'):
                     target_dtype = self.classification_head.mlp[0].weight.dtype
                     if pooled_output.dtype != target_dtype:
-                        self.logger.info(f"One-time conversion from {pooled_output.dtype} to {target_dtype}")
+                        self.logger.info(
+                            f"One-time conversion from {pooled_output.dtype} to {target_dtype}"
+                        )
                         self._model_classifier_dtypes_matched = True
                     else:
-                        self.logger.info(f"No conversion needed: model output already {pooled_output.dtype}")
+                        self.logger.info(
+                            f"No conversion needed: model output already {pooled_output.dtype}"
+                        )
                         self._model_classifier_dtypes_matched = True
             
         # Force ensure compatibility by getting classifier dtype directly
@@ -388,7 +418,8 @@ class InternVL2ReceiptClassifier(nn.Module):
             elif isinstance(outputs, tuple) and len(outputs) > 1:
                 # Check which element might contain the attention maps
                 for output in outputs:
-                    if isinstance(output, (list, tuple)) and len(output) > 0 and isinstance(output[0], torch.Tensor):
+                    if (isinstance(output, (list, tuple)) and len(output) > 0 
+                        and isinstance(output[0], torch.Tensor)):
                         attention_maps = output
                         break
                 else:
@@ -443,7 +474,9 @@ class InternVL2MultimodalModel(nn.Module):
         
         # Verify the path exists
         if not Path(pretrained_path).exists():
-            raise ValueError(f"Model path does not exist: {pretrained_path}. Please provide a valid path to the pre-downloaded model.")
+            raise ValueError(
+                f"Model path does not exist: {pretrained_path}. Please provide a valid path to the model."
+            )
         
         # Load the full model with vision and language components
         if pretrained:
@@ -534,7 +567,31 @@ class InternVL2MultimodalModel(nn.Module):
                         self.logger.info("Loaded language model successfully.")
                     except Exception as e:
                         self.logger.error(f"Error loading language model: {e}")
-                        raise ValueError("Could not instantiate a language model. Please ensure the model has a language component.")
+                        raise ValueError(
+                            "Could not instantiate a language model. "
+                            "Please ensure the model has a language component."
+                        )
+        
+        # Disable gradient checkpointing for model components
+        try:
+            # Disable gradient checkpointing in model config
+            if hasattr(self.model, "config") and hasattr(self.model.config, "gradient_checkpointing"):
+                self.model.config.gradient_checkpointing = False
+                self.logger.info("Disabled gradient checkpointing in model config")
+                
+            # Disable gradient checkpointing in vision encoder config
+            if (hasattr(self.vision_encoder, "config") 
+                and hasattr(self.vision_encoder.config, "gradient_checkpointing")):
+                self.vision_encoder.config.gradient_checkpointing = False
+                self.logger.info("Disabled gradient checkpointing in vision encoder config")
+                
+            # Disable gradient checkpointing in language model config
+            if (hasattr(self.language_model, "config") 
+                and hasattr(self.language_model.config, "gradient_checkpointing")):
+                self.language_model.config.gradient_checkpointing = False
+                self.logger.info("Disabled gradient checkpointing in language model config")
+        except Exception as e:
+            self.logger.warning(f"Could not disable gradient checkpointing: {e}")
         
         # Get hidden sizes for both encoders
         vision_hidden_size = 512  # Default fallback
