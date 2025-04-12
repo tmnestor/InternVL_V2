@@ -69,7 +69,7 @@ conda install -c conda-forge sentencepiece scikit-learn
 1. Download the pretrained InternVL2 model:
 
 ```bash
-python utils/huggingface_model_download.py --model_name OpenGVLab/InternVL2_5-1B --output_dir ~/models/InternVL2_5-1B
+PYTHONPATH=.  python utils/huggingface_model_download.py --model_name OpenGVLab/InternVL2_5-1B --output_dir ~/models/InternVL2_5-1B
 ```
 
 2. Update the configuration files with your model path:
@@ -87,7 +87,7 @@ model:
 Generate a dataset of synthetic receipt images:
 
 ```bash
-python scripts/generate_data.py --output_dir datasets --num_collages 1000 --count_probs "0.3,0.3,0.2,0.1,0.1" --stapled_ratio 0.3 --image_size 2048
+PYTHONPATH=.  python scripts/generate_data.py --output_dir datasets --num_collages 1000 --count_probs "0.3,0.3,0.2,0.1,0.1" --stapled_ratio 0.3 --image_size 2048
 ```
 
 This creates high-resolution receipt images (2048×2048) that will be automatically resized to 448×448 during training.
@@ -97,7 +97,7 @@ This creates high-resolution receipt images (2048×2048) that will be automatica
 Create a multimodal dataset with question-answer pairs:
 
 ```bash
-PYTHONPATH=. python scripts/generate_multimodal_data.py --base_dir data/raw --output_dir data/multimodal --num_samples 1000 --image_size 448
+PYTHONPATH=.  python scripts/generate_multimodal_data.py --base_dir data/raw --output_dir data/multimodal --num_samples 1000 --image_size 448
 ```
 
 The multimodal dataset includes four types of question-answer pairs:
@@ -113,7 +113,7 @@ The multimodal dataset includes four types of question-answer pairs:
 Train the model for receipt counting classification only:
 
 ```bash
-python scripts/train.py --config config/config.yaml --output_dir models/vision_only
+PYTHONPATH=.  python scripts/train.py --config config/config.yaml --output_dir models/vision_only
 ```
 
 ### Multimodal Training
@@ -121,7 +121,7 @@ python scripts/train.py --config config/config.yaml --output_dir models/vision_o
 Train the full vision-language multimodal model:
 
 ```bash
-PYTHONPATH=. python scripts/train_multimodal.py --config config/multimodal_config.yaml --output-dir models/multimodal
+PYTHONPATH=.  python scripts/train_multimodal.py --config config/multimodal_config.yaml --output-dir models/multimodal
 ```
 
 Training implements a multi-stage approach:
@@ -134,19 +134,20 @@ Training implements a multi-stage approach:
 Evaluate the model's performance:
 
 ```bash
-python scripts/evaluate.py --config config/config.yaml --model_path models/vision_only/best_model.pt
+PYTHONPATH=.  python scripts/evaluate.py --config config/config.yaml --model_path models/vision_only/best_model.pt
 ```
 
 For multimodal evaluation:
 
 ```bash
-PYTHONPATH=. python scripts/evaluate_multimodal.py --model-path models/multimodal/best_model.pt
+PYTHONPATH=.  python scripts/evaluate_multimodal.py --model-path models/multimodal/best_model.pt
 ```
 
 Test with custom images and questions:
 
 ```bash
-PYTHONPATH=. python scripts/test_multimodal_model.py --model_path models/multimodal/best_model.pt --image_path path/to/image.jpg --questions "How many receipts are in this image?" "What is the total value?"
+PYTHONPATH=.  python scripts/test_multimodal_model.py --model_path models/multimodal/best_model.pt \
+  --image_path path/to/image.jpg --questions "How many receipts are in this image?" "What is the total value?"
 ```
 
 ## Configuration Options
@@ -243,7 +244,8 @@ For maximum training performance, enable these acceleration features:
 Run hyperparameter optimization:
 
 ```bash
-python scripts/train_orchestrator.py --config config/multimodal_config.yaml --mode hyperparameter --hyperparameter-config config/hyperparameter_config.yaml
+PYTHONPATH=.  python scripts/train_orchestrator.py --config config/multimodal_config.yaml \
+  --mode hyperparameter --hyperparameter-config config/hyperparameter_config.yaml
 ```
 
 ### Ablation Studies
@@ -251,7 +253,8 @@ python scripts/train_orchestrator.py --config config/multimodal_config.yaml --mo
 Conduct ablation studies to measure component impact:
 
 ```bash
-python scripts/train_orchestrator.py --config config/multimodal_config.yaml --mode ablation --ablation-config config/ablation_config.yaml
+PYTHONPATH=.  python scripts/train_orchestrator.py --config config/multimodal_config.yaml \
+  --mode ablation --ablation-config config/ablation_config.yaml
 ```
 
 ## Performance Metrics
