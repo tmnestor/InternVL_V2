@@ -6,14 +6,14 @@ This script generates a dataset of synthetic receipt images and creates
 appropriate train/val/test splits for model training.
 """
 import argparse
-import os
-import sys
-from pathlib import Path
 
 # NOTE: This file has been updated to use the new ab initio implementation
 # of receipt and tax document generation. The old implementation in
 # data.data_generators has been replaced with data.data_generators_new.
 import random
+import sys
+from pathlib import Path
+
 import numpy as np
 
 # Add parent directory to path to import from data/data_generators
@@ -75,9 +75,11 @@ def generate_dataset(args):
             seed=args.seed
         )
         
-        print(f"Dataset generation complete! Created images at {args.image_size}×{args.image_size} resolution")
+        print(f"Dataset generation complete! Images created at {args.image_size}×{args.image_size}")
         print(f"Synthetic receipts saved to {synthetic_dir}")
-        print(f"Note: High-resolution {args.image_size}×{args.image_size} images will be resized to 448×448 during training")
+        img_size = f"{args.image_size}×{args.image_size}"
+        resize_note = f"Note: {img_size} images will be resized to 448×448 during training"
+        print(resize_note)
         
     except Exception as e:
         print(f"Error generating dataset: {e}")

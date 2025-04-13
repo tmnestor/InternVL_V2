@@ -7,13 +7,12 @@ and regenerates them with improved tax document styling to make them more
 visually distinct from receipts.
 """
 import argparse
-import os
+import random
 import sys
 from pathlib import Path
-import pandas as pd
-import random
+
 import numpy as np
-from PIL import Image
+import pandas as pd
 
 # NOTE: This file has been updated to use the new ab initio implementation
 # of receipt and tax document generation. The old implementation in
@@ -92,17 +91,17 @@ def main():
         except Exception as e:
             print(f"Error generating {filename}: {e}")
     
-    print(f"\nRegeneration complete!")
+    print("\nRegeneration complete!")
     print(f"Successfully regenerated {len(tax_docs)} tax documents with improved styling")
-    print(f"The documents now have:")
-    print(f"- More whitespace for better visual distinction")
-    print(f"- Official-looking headers and footers")
-    print(f"- Formal tables and layouts")
-    print(f"- Light blue backgrounds typical of tax forms")
-    print(f"- Subtle ATO watermarking")
+    print("The documents now have:")
+    print("- More whitespace for better visual distinction")
+    print("- Official-looking headers and footers")
+    print("- Formal tables and layouts")
+    print("- Light blue backgrounds typical of tax forms")
+    print("- Subtle ATO watermarking")
     
-    print(f"\nThese changes will make the tax documents (class 0) visually distinct from receipts,")
-    print(f"allowing the model to better learn the difference between tax documents and receipts.")
+    print("\nThese changes will make the tax documents (class 0) visually distinct from receipts,")
+    print("allowing the model to better learn the difference between tax documents and receipts.")
 
 
 if __name__ == "__main__":

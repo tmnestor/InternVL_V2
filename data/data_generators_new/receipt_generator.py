@@ -6,8 +6,8 @@ This module creates synthetic receipts from first principles, with realistic
 variations in layout, content, and styling to train robust receipt classification models.
 """
 import random
-from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
+from PIL import Image, ImageDraw, ImageFont
 
 # Only import numpy if available, otherwise use fallbacks
 try:
@@ -271,7 +271,6 @@ def create_standard_receipt(width, height, items_count=None):
     # Add receipt number
     receipt_number = f"#{random.randint(10000, 999999)}"
     receipt_text = "RECEIPT:"
-    receipt_text_width = font_body.getlength(receipt_text)
     
     # Position receipt number on the right
     receipt_number_width = font_body.getlength(receipt_number)
@@ -326,7 +325,7 @@ def create_standard_receipt(width, height, items_count=None):
     subtotal = 0
     
     # Draw items
-    for name, price_range, unit in selected_items:
+    for name, price_range, _ in selected_items:  # use _ since we don't use the unit variable
         # Skip if we'd go past the bottom margin
         if current_y > height - 200:
             break
@@ -394,7 +393,7 @@ def create_standard_receipt(width, height, items_count=None):
     
     # Add tax
     current_y += item_height
-    draw.text((margin, current_y), f"GST (10%):", fill="black", font=font_body)
+    draw.text((margin, current_y), "GST (10%):", fill="black", font=font_body)
     tax_width = font_body.getlength(tax_str)
     draw.text((width - margin - tax_width, current_y), tax_str, 
               fill="black", font=font_body)
@@ -508,7 +507,13 @@ def create_detailed_receipt(width, height, items_count=None):
     store_address = f"{street_num} {street}, {city} {state} {postcode}"
     
     # Generate ABN (Australian Business Number)
-    abn = f"{random.randint(10, 99)} {random.randint(100, 999)} {random.randint(100, 999)} {random.randint(100, 999)}"
+    abn_parts = [
+        f"{random.randint(10, 99)}",
+        f"{random.randint(100, 999)}",
+        f"{random.randint(100, 999)}",
+        f"{random.randint(100, 999)}"
+    ]
+    abn = " ".join(abn_parts)
     
     # Center the address
     address_width = font_small.getlength(store_address)
@@ -702,7 +707,7 @@ def create_detailed_receipt(width, height, items_count=None):
     
     # Add tax
     current_y += item_height
-    draw.text((margin, current_y), f"GST (10%):", fill="black", font=font_body)
+    draw.text((margin, current_y), "GST (10%):", fill="black", font=font_body)
     tax_width = font_body.getlength(tax_str)
     draw.text((width - margin - tax_width, current_y), tax_str, 
               fill="black", font=font_body)
@@ -1117,7 +1122,7 @@ def create_fancy_receipt(width, height, items_count=None):
     
     # Add tax
     current_y += item_height
-    draw.text((totals_left, current_y), f"GST (10%):", fill="black", font=font_body)
+    draw.text((totals_left, current_y), "GST (10%):", fill="black", font=font_body)
     tax_width = font_body.getlength(tax_str)
     draw.text((table_right - tax_width - 10, current_y), tax_str, 
               fill="black", font=font_body)
@@ -1244,7 +1249,7 @@ def create_minimal_receipt(width, height, items_count=None):
     # Get fonts with realistic sizing
     font_header = get_font("header")
     font_body = get_font("body")
-    font_small = get_font("small")
+    # font_small isn't used in this style
     
     # Determine margins based on width
     margin = max(RECEIPT_MARGIN, int(width * 0.1))  # Larger margin for minimal look
@@ -1308,7 +1313,7 @@ def create_minimal_receipt(width, height, items_count=None):
     subtotal = 0
     
     # Draw items - simplified format with just item and price for minimal look
-    for name, price_range, unit in selected_items:
+    for name, price_range, _ in selected_items:
         # Skip if we'd go past the bottom margin
         if current_y > height - 150:
             break
@@ -1318,9 +1323,8 @@ def create_minimal_receipt(width, height, items_count=None):
         price_variation = random.uniform(0.95, 1.05)
         price = round(base_price * price_variation) / 100.0
         
-        # For minimal receipt, just use quantity 1
-        qty = 1
-        total = price
+        # For minimal receipt, we don't show quantity (always 1)
+        total = price  # qty is always 1 
         subtotal += total
         
         # Format strings

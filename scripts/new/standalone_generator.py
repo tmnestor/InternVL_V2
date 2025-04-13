@@ -6,12 +6,10 @@ This script is a self-contained implementation that generates realistic
 Australian receipts and tax documents without external dependencies
 beyond the Python standard library and PIL/Pillow.
 """
-import os
-import sys
 import random
-import math
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
+from PIL import Image, ImageDraw, ImageFont
 
 # Create output directory
 OUTPUT_DIR = "standalone_samples"
@@ -249,7 +247,7 @@ def create_receipt(image_size=2048):
     
     # Add tax
     current_y += item_height
-    draw.text((margin, current_y), f"GST (10%):", fill="black", font=font_body)
+    draw.text((margin, current_y), "GST (10%):", fill="black", font=font_body)
     tax_width = font_body.getlength(tax_str)
     draw.text((width - margin - tax_width, current_y), tax_str, 
               fill="black", font=font_body)
@@ -377,7 +375,7 @@ def create_tax_document(image_size=2048):
     
     # Anonymize some characters
     name_chars = list(name)
-    for i in range(3):
+    for _ in range(3):
         pos = random.randint(0, len(name) - 1)
         if name_chars[pos] != " ":
             name_chars[pos] = "X"
@@ -392,7 +390,7 @@ def create_tax_document(image_size=2048):
     tfn_y = name_y + date_font.size + 10
     tfn = f"{random.randint(100, 999)} {random.randint(100, 999)} {random.randint(100, 999)}"
     tfn_chars = list(tfn)
-    for i in range(5):
+    for _ in range(5):
         pos = random.randint(0, len(tfn) - 1)
         if tfn_chars[pos] != " ":
             tfn_chars[pos] = "X"
@@ -450,8 +448,9 @@ def create_tax_document(image_size=2048):
     ]
     
     # Draw table
-    col1_width = 350
     row_height = table_font.size + 20
+    # First column width (not used but kept as reference for table design)
+    # col1_width = 350
     
     for i, (label, value) in enumerate(items):
         row_y = table_y + i * row_height

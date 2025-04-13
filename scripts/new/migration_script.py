@@ -8,11 +8,9 @@ Migration script to update imports in files that depend on the old data_generato
 This script identifies files that import from the old data_generators module
 and patches them to use the new ab initio implementation.
 """
-import os
-import re
 import argparse
+import os
 import sys
-from pathlib import Path
 
 
 def update_imports(file_path, dry_run=False):
@@ -28,11 +26,12 @@ def update_imports(file_path, dry_run=False):
     
     # Map the major modules to their new versions
     replacements = {
-        'data.data_generators_new.receipt_generator': 'data.data_generators_new.receipt_generator',
-        'from data.data_generators_new.receipt_generator.create_receipt': 'from data.data_generators_new.receipt_generator.create_receipt',
+        'data.data_generators.receipt_generator': 'data.data_generators_new.receipt_generator',
+        'from data.data_generators.receipt_generator.create_receipt': 
+            'from data.data_generators_new.receipt_generator.create_receipt',
         'create_tax_document': 'create_tax_document',
-        'data.data_generators_new.create_multimodal_data': 'data.data_generators_new.create_multimodal_data',
-        'data.data_generators_new.receipt_generator': 'data.data_generators_new.receipt_generator'
+        'data.data_generators.create_multimodal_data': 
+            'data.data_generators_new.create_multimodal_data'
     }
     
     new_content = content
@@ -60,7 +59,9 @@ def update_imports(file_path, dry_run=False):
         # Insert the comment after the imports
         import_section_end = new_content.find('\n\n', new_content.find('import'))
         if import_section_end > 0:
-            new_content = new_content[:import_section_end + 2] + migration_comment + new_content[import_section_end + 2:]
+            # Split the string to avoid line length issues
+            insert_point = import_section_end + 2
+            new_content = new_content[:insert_point] + migration_comment + new_content[insert_point:]
         else:
             # Just add to the top if we can't find the import section end
             new_content = migration_comment + new_content
@@ -68,9 +69,12 @@ def update_imports(file_path, dry_run=False):
     if changes_made:
         if dry_run:
             print(f"Changes for {file_path}:")
-            print(f"--- Original")
-            print(f"+++ Modified")
-            for i, (old_line, new_line) in enumerate(zip(content.splitlines(), new_content.splitlines())):
+            print("--- Original")
+            print("+++ Modified")
+            # Compare the original and modified content line by line
+            original_lines = content.splitlines()
+            modified_lines = new_content.splitlines()
+            for _, (old_line, new_line) in enumerate(zip(original_lines, modified_lines, strict=False)):
                 if old_line != new_line:
                     print(f"- {old_line}")
                     print(f"+ {new_line}")
@@ -95,7 +99,7 @@ def find_dependent_files(base_dir, pattern="data.data_generators"):
     """
     dependent_files = []
     
-    for root, dirs, files in os.walk(base_dir):
+    for root, _, files in os.walk(base_dir):
         # Skip the data_generators directory itself
         if '/data/data_generators' in root:
             continue

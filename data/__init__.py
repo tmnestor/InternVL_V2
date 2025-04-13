@@ -7,8 +7,8 @@ from data.dataset import ReceiptDataset, create_dataloaders
 try:
     from data.data_generators_new import (
         create_receipt,
+        create_synthetic_multimodal_data,
         create_tax_document,
-        create_synthetic_multimodal_data
     )
     
     # Update __all__ with the new components

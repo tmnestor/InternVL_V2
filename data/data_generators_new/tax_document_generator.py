@@ -7,8 +7,8 @@ with realistic variations in layout, content, and styling to ensure they're
 visually distinct from receipts.
 """
 import random
-from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
+
+from PIL import Image, ImageDraw, ImageFont
 
 # Only import numpy if available, otherwise use fallbacks
 try:
@@ -444,9 +444,12 @@ def create_reference_section(draw, width, height, margin, current_y):
     day = random.randint(1, 28)
     month = random.randint(1, 12)
     year = random.randint(2020, 2023)
+    # Month names for date formatting
+    months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    
     date_format = random.choice([
         f"{day:02d}/{month:02d}/{year}",
-        f"{day:02d} {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month-1]} {year}",
+        f"{day:02d} {months[month-1]} {year}",
         f"{day:02d}-{month:02d}-{year}"
     ])
     
@@ -677,8 +680,7 @@ def create_financial_section(draw, width, height, margin, current_y, doc_type):
     Returns:
         Y-position after the financial section
     """
-    finance_font = get_font("body")
-    finance_bold = get_font("body", bold=True)
+    # Use heading font for the section title
     heading_font = get_font("subheader", bold=True)
     
     # Add section heading
@@ -737,7 +739,7 @@ def create_bas_table(draw, width, height, margin, current_y):
         Y-position after the table
     """
     table_font = get_font("body")
-    small_font = get_font("small")
+    # We don't use small_font in this function but we might in the future
     
     # Define table dimensions
     table_width = width - 2 * margin
@@ -1061,7 +1063,7 @@ def create_payment_table(draw, width, height, margin, current_y):
         Y-position after the table
     """
     table_font = get_font("body")
-    small_font = get_font("small")
+    # We don't use small_font in this function but we might in the future
     
     # Define table dimensions
     table_width = width - 2 * margin

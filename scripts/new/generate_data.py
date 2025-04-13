@@ -6,25 +6,26 @@ This script generates receipt collages (with 0-5 receipts per image), including 
 Australian Taxation Office (ATO) documents for class 0 (zero receipts). It implements
 ab initio generation rather than conversion-based approaches.
 """
-import os
-import sys
-import random
+# Standard library imports
 import argparse
-import numpy as np
+import os
+import random
+import sys
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 
-# NOTE: This file has been updated to use the new ab initio implementation
-# of receipt and tax document generation. The old implementation in
-# data.data_generators has been replaced with data.data_generators_new.
-# Add parent directory to path
+# Third-party library imports
+import numpy as np
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
+
+# Setup path for local imports
 script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.abspath(os.path.join(script_dir, "../.."))
-sys.path.insert(0, parent_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
 
-# Import receipt and tax document generators
-from data.data_generators_new.receipt_generator import create_receipt
-from data.data_generators_new.tax_document_generator import create_tax_document
+# Local imports (noqa comments tell linters to ignore these imports)
+from data.data_generators_new.receipt_generator import create_receipt  # noqa: E402
+from data.data_generators_new.tax_document_generator import create_tax_document  # noqa: E402
 
 
 def create_blank_image(width, height, color="white"):
@@ -79,7 +80,7 @@ def create_receipt_collage(receipt_count, image_size=2048, stapled=False):
         center_y = (image_size - max_height) // 2
         
         # Place receipts with small offsets
-        for idx, receipt in enumerate(receipts):
+        for _, receipt in enumerate(receipts):
             # Calculate offset for this receipt in the stack
             offset_x = random.randint(-15, 15)
             offset_y = random.randint(-15, 15)
@@ -164,7 +165,6 @@ def split_dataset(metadata_df, output_dir, train_ratio=0.7, val_ratio=0.15):
     Returns:
         None (saves files to disk)
     """
-    import pandas as pd
     
     try:
         # Try to use sklearn for stratified splitting
@@ -217,7 +217,7 @@ def split_dataset(metadata_df, output_dir, train_ratio=0.7, val_ratio=0.15):
     test_df.to_csv(output_dir / "metadata_test.csv", index=False)
     
     # Print split statistics
-    print(f"\nDataset split statistics:")
+    print("\nDataset split statistics:")
     print(f"  Training set:   {len(train_df)} images ({train_ratio:.1%})")
     print(f"  Validation set: {len(val_df)} images ({val_ratio:.1%})")
     print(f"  Test set:       {len(test_df)} images ({1-train_ratio-val_ratio:.1%})")
@@ -234,7 +234,8 @@ def split_dataset(metadata_df, output_dir, train_ratio=0.7, val_ratio=0.15):
         test_count = test_dist.get(count, 0)
         total_count = train_count + val_count + test_count
         
-        print(f"  Class {count}: {train_count} train, {val_count} val, {test_count} test (total: {total_count})")
+        print(f"  Class {count}: {train_count} train, {val_count} val, {test_count} test "
+              f"(total: {total_count})")
 
 
 def generate_dataset(output_dir, num_collages=300, count_probs=None, image_size=2048, 

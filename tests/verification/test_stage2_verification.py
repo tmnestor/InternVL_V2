@@ -7,19 +7,18 @@ implementation of Stage 2, which focuses on multimodal dataset creation
 for vision-language integration.
 """
 
-import os
-import unittest
-import tempfile
-from pathlib import Path
-import sys
 import json
+import os
 import random
-import string
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+import numpy as np
 import pandas as pd
 import torch
-import numpy as np
 from PIL import Image
-from typing import Dict, List, Tuple
 
 # NOTE: This file has been updated to use the new ab initio implementation
 # of receipt and tax document generation. The old implementation in
@@ -28,13 +27,13 @@ from typing import Dict, List, Tuple
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 # Import components to test
-from data.dataset import MultimodalReceiptDataset, ReceiptDataset, create_dataloaders, collate_fn_multimodal
 from data.data_generators_new.create_multimodal_data import (
-    generate_question_templates, 
+    create_synthetic_multimodal_data,
     generate_answer_templates,
     generate_qa_pair,
-    create_synthetic_multimodal_data
+    generate_question_templates,
 )
+from data.dataset import MultimodalReceiptDataset, collate_fn_multimodal, create_dataloaders
 
 
 class TestMultimodalDatasetImplementation(unittest.TestCase):
@@ -483,8 +482,7 @@ class TestMultimodalDatasetImplementation(unittest.TestCase):
         """Verify that the dataset distribution matches requirements."""
         # Create a synthetic dataset in memory for testing distributions
         # Mock create_receipt and create_blank_image so we don't actually generate images
-        from data.data_generators_new.receipt_generator import create_receipt
-        from data.data_generators_new.receipt_generator import create_blank_image
+        from data.data_generators_new.receipt_generator import create_blank_image, create_receipt
         
         # Save original functions
         original_create_receipt = create_receipt
@@ -507,7 +505,6 @@ class TestMultimodalDatasetImplementation(unittest.TestCase):
                 return Image.new('RGB', (448, 448), color=(255, 255, 255))
             
             # Apply mocks
-            import data.data_generators_new.receipt_generator
             import data.data_generators_new.receipt_generator
             data.data_generators_new.receipt_generator.create_receipt = mock_create_receipt
             data.data_generators_new.receipt_generator.create_blank_image = mock_create_blank

@@ -6,7 +6,6 @@ This script creates datasets for training and evaluation of the multimodal
 receipt counter model with both vision and language inputs.
 """
 import argparse
-import os
 import random
 from pathlib import Path
 
@@ -17,7 +16,6 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 from sklearn.model_selection import train_test_split
-from transformers import AutoTokenizer
 
 from data.data_generators_new.create_multimodal_data import create_synthetic_multimodal_data
 
@@ -146,9 +144,11 @@ def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Generate multimodal receipt dataset")
     parser.add_argument("--base_dir", type=str, default="data/raw", help="Base directory for raw data")
-    parser.add_argument("--output_dir", type=str, default="data/multimodal", help="Output directory for processed datasets")
+    parser.add_argument("--output_dir", type=str, default="data/multimodal", 
+                        help="Output directory for processed datasets")
     parser.add_argument("--num_samples", type=int, default=1000, help="Number of samples to generate")
-    parser.add_argument("--image_size", type=int, default=448, help="Image size (default: 448 for InternVL2)")
+    parser.add_argument("--image_size", type=int, default=448, 
+                        help="Image size (default: 448 for InternVL2)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     return parser.parse_args()
 

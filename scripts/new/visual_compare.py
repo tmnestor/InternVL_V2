@@ -5,12 +5,12 @@ Visual comparison tool for receipt and tax document generators.
 This script generates sample images from both the original and new ab initio
 implementations to visually compare the results.
 """
-import os
-import sys
-import random
 import argparse
+import os
+import random
+import sys
+
 import numpy as np
-from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 # NOTE: This file has been updated to use the new ab initio implementation
@@ -24,13 +24,10 @@ sys.path.insert(0, parent_dir)
 # Import both implementations
 try:
     # Original implementation
-    from data.data_generators_new.receipt_generator import (
-        create_receipt as original_receipt,
-        create_tax_document as original_tax_doc
-    )
-    
     # New ab initio implementation
     from data.data_generators_new.receipt_generator import create_receipt as new_receipt
+    from data.data_generators_new.receipt_generator import create_receipt as original_receipt
+    from data.data_generators_new.receipt_generator import create_tax_document as original_tax_doc
     from data.data_generators_new.tax_document_generator import create_tax_document as new_tax_doc
     
     IMPLEMENTATIONS_LOADED = True
@@ -67,10 +64,12 @@ def create_comparison_grid(output_path, num_samples=3, image_size=1024, seed=42)
     # Try to load font
     try:
         font = ImageFont.truetype("Arial", 40)
-    except:
+    except Exception as e:
+        print(f"Font 'Arial' not available: {e}")
         try:
             font = ImageFont.truetype("DejaVuSans", 40)
-        except:
+        except Exception as e:
+            print(f"Font 'DejaVuSans' not available: {e}")
             font = ImageFont.load_default()
     
     # Add headers
