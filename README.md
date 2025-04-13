@@ -1,6 +1,6 @@
 # InternVL2 Receipt Counter
 
-A vision-language multimodal system that helps taxation officers accurately count, analyze, and extract information from receipt images using natural language interaction.
+A vision-language multimodal system that helps Australian Taxation Office (ATO) officers accurately distinguish between tax documents and receipts, count receipts, analyze, and extract information from receipt images using natural language interaction.
 
 ## Overview
 
@@ -82,15 +82,32 @@ model:
 
 ## Data Generation
 
-### Synthetic Receipt Images
+### Synthetic Receipt and Tax Document Images
 
-Generate a dataset of synthetic receipt images:
+Generate a dataset of synthetic receipt images and ATO tax documents:
 
 ```bash
 PYTHONPATH=.  python scripts/generate_data.py --output_dir datasets --num_collages 1000 --count_probs "0.3,0.3,0.2,0.1,0.1" --stapled_ratio 0.3 --image_size 2048
 ```
 
-This creates high-resolution receipt images (2048×2048) that will be automatically resized to 448×448 during training.
+This creates high-resolution images (2048×2048) that will be automatically resized to 448×448 during training:
+- For `receipt_count > 0`: Various receipt arrangements
+- For `receipt_count = 0`: Australian Taxation Office (ATO) documents with formal styling
+
+### Enhanced Tax Document Generation
+
+Improve the ATO tax document visuals to make them more distinct from receipts:
+
+```bash
+# Regenerate class 0 images with enhanced tax document styling
+PYTHONPATH=.  python scripts/regenerate_tax_docs.py --backup
+```
+
+This creates visually distinct tax documents with:
+- Official ATO styling and branding
+- Formal document structure with more whitespace
+- Light blue backgrounds typical of tax forms
+- Structured tables and form elements
 
 ### Multimodal Dataset
 
@@ -100,11 +117,12 @@ Create a multimodal dataset with question-answer pairs:
 PYTHONPATH=.  python scripts/generate_multimodal_data.py --base_dir data/raw --output_dir data/multimodal --num_samples 1000 --image_size 448
 ```
 
-The multimodal dataset includes four types of question-answer pairs:
+The multimodal dataset includes five types of question-answer pairs:
 - Counting questions: "How many receipts are in this image?"
 - Existence questions: "Are there any receipts visible?"
 - Value questions: "What is the total value of these receipts?"
 - Detail questions: "Which store has the highest receipt value?"
+- Document type questions: "Is this a tax document or a receipt?"
 
 ## Training
 

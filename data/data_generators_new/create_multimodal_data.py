@@ -4,6 +4,8 @@ Generate multimodal vision-language data for receipt counting.
 
 This script creates data with receipt images and corresponding question-answer pairs
 for training and evaluation of the multimodal receipt counter model.
+
+This is an ab initio implementation that doesn't depend on the original data_generators.
 """
 import argparse
 import json
@@ -15,9 +17,22 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-from data.data_generators.create_receipt_collages import load_receipt_images
-from data.data_generators.create_synthetic_receipts import create_receipt_image
-from data.data_generators.receipt_processor import create_blank_image
+from data.data_generators_new.receipt_generator import create_receipt
+
+
+def create_blank_image(width, height, color="white"):
+    """
+    Create a blank image with specified dimensions and color.
+    
+    Args:
+        width: Image width
+        height: Image height
+        color: Background color
+        
+    Returns:
+        PIL Image object
+    """
+    return Image.new('RGB', (width, height), color)
 
 
 def generate_question_templates() -> Dict[str, List[str]]:
@@ -75,6 +90,18 @@ def generate_question_templates() -> Dict[str, List[str]]:
             "Are any of these receipts from the same store?",
             "What payment methods were used?",
             "How many different stores are represented in these receipts?",
+        ],
+        "document_type": [
+            "Is this a tax document or a receipt?",
+            "What type of document is this?",
+            "Is this an official tax document?",
+            "Is this a receipt from a store?",
+            "Can you identify if this is a tax document or receipt?",
+            "Is this a transaction receipt or a tax form?",
+            "What kind of financial document is shown here?",
+            "Is this document a receipt or official government form?",
+            "Is this an ATO document or a receipt?",
+            "Can you tell me if this is a receipt or a tax document?",
         ]
     }
     
@@ -142,6 +169,22 @@ def generate_answer_templates() -> Dict[str, List[str]]:
             "The receipt shows payment by {payment_method}.",
             "The customer paid with {payment_method}.",
             "{payment_method} was used for this transaction.",
+        ],
+        "document_type_tax": [
+            "This is a tax document from the Australian Taxation Office.",
+            "This is an official tax document, not a receipt.",
+            "This is a tax form from the ATO.",
+            "This is an Australian Taxation Office document.",
+            "This appears to be an official tax document.",
+            "This is a government tax document, not a receipt.",
+        ],
+        "document_type_receipt": [
+            "This is a receipt from a store transaction.",
+            "This is a receipt, not a tax document.",
+            "This is a sales receipt showing purchased items.",
+            "This is a transaction receipt from a retail purchase.",
+            "This is a receipt showing a completed purchase.",
+            "This appears to be a standard sales receipt.",
         ]
     }
     
@@ -177,12 +220,16 @@ def generate_qa_pair(receipt_count: int, receipt_values: Optional[List[float]] =
     if store_names and receipt_values:
         available_types.append("detail")
     
+    # Always add document type questions
+    available_types.append("document_type")
+    
     # Weights for question types
     type_weights = {
-        "counting": 0.4,
-        "existence": 0.3,
-        "value": 0.2,
-        "detail": 0.1
+        "counting": 0.35,
+        "existence": 0.25,
+        "value": 0.15,
+        "detail": 0.1,
+        "document_type": 0.15
     }
     
     # Filter to available types and normalize weights
@@ -228,6 +275,14 @@ def generate_qa_pair(receipt_count: int, receipt_values: Optional[List[float]] =
         total_value = sum(receipt_values)
         answer_template = random.choice(answer_templates["value"])
         answer = answer_template.format(total_value=total_value)
+    
+    elif question_type == "document_type":
+        if receipt_count == 0:
+            # This is a tax document (class 0)
+            answer = random.choice(answer_templates["document_type_tax"])
+        else:
+            # This is a receipt (classes 1+)
+            answer = random.choice(answer_templates["document_type_receipt"])
     
     elif question_type == "detail" and store_names and receipt_values:
         # Choose detail sub-type
@@ -319,7 +374,7 @@ def generate_qa_pair(receipt_count: int, receipt_values: Optional[List[float]] =
 
 
 def create_synthetic_multimodal_data(num_samples: int, output_dir: Union[str, Path], 
-                                    image_size: int = 448, seed: int = 42) -> pd.DataFrame:
+                                   image_size: int = 448, seed: int = 42) -> pd.DataFrame:
     """
     Create a multimodal dataset with synthetic receipt images and QA pairs.
     
@@ -356,20 +411,17 @@ def create_synthetic_multimodal_data(num_samples: int, output_dir: Union[str, Pa
         total_receipts = 0
         
         for _ in range(receipt_count):
-            # Create single receipt with random items
-            width = random.randint(300, 600)
-            height = random.randint(800, 1500)
-            items_count = random.randint(5, 15)
-            receipt = create_receipt_image(width, height, items_count)
+            # Create single receipt using our ab initio implementation
+            receipt = create_receipt(image_size)
             
             # Extract value information (with some randomness since we can't perfectly parse the synthetic data)
             receipt_value = round(random.uniform(10.0, 200.0), 2)
             
             # Extract store names
             store_names = [
-                "GROCERY WORLD", "SUPERMARKET PLUS", "FOOD MART", "MARKET PLACE", 
-                "CONVENIENCE STORE", "FRESH FOODS", "MEGA MART", "VALUE STORE",
-                "QUICK SHOP", "DAILY GOODS", "FAMILY MARKET"
+                "WOOLWORTHS", "COLES", "ALDI", "IGA", "BUNNINGS", "KMART", "TARGET", 
+                "OFFICEWORKS", "BIG W", "DAN MURPHY'S", "BWS", "CHEMIST WAREHOUSE",
+                "JB HI-FI", "HARVEY NORMAN", "REBEL", "SUPERCHEAP AUTO", "LIQUORLAND"
             ]
             store_name = random.choice(store_names)
             
@@ -382,14 +434,14 @@ def create_synthetic_multimodal_data(num_samples: int, output_dir: Union[str, Pa
             date = f"{month} {day}, {year}"
             
             # Extract payment methods
-            payment_methods = ["VISA", "MASTERCARD", "AMEX", "CASH", "DEBIT"]
+            payment_methods = ["VISA", "MASTERCARD", "AMEX", "CASH", "EFTPOS", "ZIP", "AFTERPAY"]
             payment_method = random.choice(payment_methods)
             
             # Scale receipt for collage
             scale_factor = min(image_size / 2 / receipt.width, image_size / 2 / receipt.height)
             new_width = int(receipt.width * scale_factor)
             new_height = int(receipt.height * scale_factor)
-            receipt = receipt.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            receipt = receipt.resize((new_width, new_height), Image.LANCZOS)
             
             receipts_info.append({
                 "image": receipt,
@@ -405,10 +457,9 @@ def create_synthetic_multimodal_data(num_samples: int, output_dir: Union[str, Pa
         collage = create_blank_image(image_size, image_size, 'white')
         
         if receipt_count == 0:
-            # For no receipts, create a background with some texture
-            collage = create_blank_image(image_size, image_size, 'white')
-            draw = Image.new('RGB', (image_size, image_size), color=(255, 255, 255))
-            collage = draw
+            # For no receipts, create an ATO document (using the styled generator)
+            from data.data_generators_new.tax_document_generator import create_tax_document
+            collage = create_tax_document(image_size=image_size)
         else:
             # Place receipts in collage
             for idx, receipt_info in enumerate(receipts_info):

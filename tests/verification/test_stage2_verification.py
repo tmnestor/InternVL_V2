@@ -21,12 +21,15 @@ import numpy as np
 from PIL import Image
 from typing import Dict, List, Tuple
 
+# NOTE: This file has been updated to use the new ab initio implementation
+# of receipt and tax document generation. The old implementation in
+# data.data_generators has been replaced with data.data_generators_new.
 # Add parent directory to path to allow imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 # Import components to test
 from data.dataset import MultimodalReceiptDataset, ReceiptDataset, create_dataloaders, collate_fn_multimodal
-from data.data_generators.create_multimodal_data import (
+from data.data_generators_new.create_multimodal_data import (
     generate_question_templates, 
     generate_answer_templates,
     generate_qa_pair,
@@ -479,19 +482,19 @@ class TestMultimodalDatasetImplementation(unittest.TestCase):
     def test_dataset_distribution(self):
         """Verify that the dataset distribution matches requirements."""
         # Create a synthetic dataset in memory for testing distributions
-        # Mock create_receipt_image and create_blank_image so we don't actually generate images
-        from data.data_generators.create_synthetic_receipts import create_receipt_image
-        from data.data_generators.receipt_processor import create_blank_image
+        # Mock create_receipt and create_blank_image so we don't actually generate images
+        from data.data_generators_new.receipt_generator import create_receipt
+        from data.data_generators_new.receipt_generator import create_blank_image
         
         # Save original functions
-        original_create_receipt = create_receipt_image
+        original_create_receipt = create_receipt
         original_create_blank = create_blank_image
         
         # Mock Image.open
         original_image_open = Image.open
         
         try:
-            # Mock create_receipt_image
+            # Mock create_receipt
             def mock_create_receipt(*args, **kwargs):
                 return Image.new('RGB', (300, 800), color=(255, 255, 255))
             
@@ -504,10 +507,10 @@ class TestMultimodalDatasetImplementation(unittest.TestCase):
                 return Image.new('RGB', (448, 448), color=(255, 255, 255))
             
             # Apply mocks
-            import data.data_generators.create_synthetic_receipts
-            import data.data_generators.receipt_processor
-            data.data_generators.create_synthetic_receipts.create_receipt_image = mock_create_receipt
-            data.data_generators.receipt_processor.create_blank_image = mock_create_blank
+            import data.data_generators_new.receipt_generator
+            import data.data_generators_new.receipt_generator
+            data.data_generators_new.receipt_generator.create_receipt = mock_create_receipt
+            data.data_generators_new.receipt_generator.create_blank_image = mock_create_blank
             Image.open = mock_image_open
             
             # Create output dir for this test
@@ -566,8 +569,8 @@ class TestMultimodalDatasetImplementation(unittest.TestCase):
             
         finally:
             # Restore original functions
-            data.data_generators.create_synthetic_receipts.create_receipt_image = original_create_receipt
-            data.data_generators.receipt_processor.create_blank_image = original_create_blank
+            data.data_generators_new.receipt_generator.create_receipt = original_create_receipt
+            data.data_generators_new.receipt_generator.create_blank_image = original_create_blank
             Image.open = original_image_open
 
 

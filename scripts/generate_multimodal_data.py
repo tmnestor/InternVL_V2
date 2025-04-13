@@ -10,13 +10,16 @@ import os
 import random
 from pathlib import Path
 
+# NOTE: This file has been updated to use the new ab initio implementation
+# of receipt and tax document generation. The old implementation in
+# data.data_generators has been replaced with data.data_generators_new.
 import numpy as np
 import pandas as pd
 from PIL import Image
 from sklearn.model_selection import train_test_split
 from transformers import AutoTokenizer
 
-from data.data_generators.create_multimodal_data import create_synthetic_multimodal_data
+from data.data_generators_new.create_multimodal_data import create_synthetic_multimodal_data
 
 
 def prepare_datasets(

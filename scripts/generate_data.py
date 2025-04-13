@@ -10,12 +10,15 @@ import os
 import sys
 from pathlib import Path
 
+# NOTE: This file has been updated to use the new ab initio implementation
+# of receipt and tax document generation. The old implementation in
+# data.data_generators has been replaced with data.data_generators_new.
 import random
 import numpy as np
 
 # Add parent directory to path to import from data/data_generators
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from data.data_generators.create_synthetic_receipts import generate_dataset as create_receipts
+from data.data_generators_new.receipt_generator import generate_dataset as create_receipts
 
 
 def set_seed(seed):

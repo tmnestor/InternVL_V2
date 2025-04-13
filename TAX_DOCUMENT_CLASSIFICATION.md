@@ -33,7 +33,15 @@ A key innovation in our approach is the specific treatment of the "0 receipts" c
 - **Location**: Stored alongside receipt images in the `datasets/synthetic_receipts/images/` directory
 - **Purpose**: This structure creates a more realistic classification task mimicking real-world scenarios
 
-> **Important Note on Visual Characteristics**: While the current class 0 images may not exhibit all typical visual properties of official tax forms (e.g., higher whitespace ratio, lower edge density), they are still treated as tax documents for training and evaluation purposes. This represents a realistic challenge as tax documents may vary widely in appearance.
+> **Enhanced Tax Document Generation**: The class 0 images are now generated with distinct visual characteristics of official tax forms:
+> - Higher whitespace ratio for cleaner appearance
+> - Lower edge density with structured layouts
+> - Light blue backgrounds common in ATO documents
+> - Official-looking headers and footers
+> - Formal tables and structured content areas
+> - Australian Taxation Office watermarks
+> 
+> These improvements ensure that tax documents are visually distinct from receipts, allowing the model to better learn the difference between document types.
 
 ### Model Architecture
 
