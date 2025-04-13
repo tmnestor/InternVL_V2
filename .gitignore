@@ -36,5 +36,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Jupyter Notebook
+.ipynb_checkpoints/
+
 # Virtual environment
 venv_py311/
