@@ -640,19 +640,23 @@ class MultimodalTrainer:
                 if batch_idx % 5 == 0:  # Only generate for some batches to save time
                     try:
                         # Generate responses with safer parameters
-                        generated_ids, decoded_texts = self.model.generate_response(
-                            pixel_values=batch["pixel_values"],
-                            text_input_ids=batch["text_input_ids"],
-                            attention_mask=batch["text_attention_mask"],
-                            max_length=50,
-                            # Use lower temperature for more focused responses
-                            temperature=0.5,
-                            # Restrict sampling to higher probability tokens for better quality
-                            top_k=5,
-                            top_p=0.92,
-                            # Add repetition penalty to discourage repeating tokens (like dots)
-                            repetition_penalty=1.5
-                        )
+                        # Check if model supports repetition_penalty
+                        generate_params = {
+                            "pixel_values": batch["pixel_values"],
+                            "text_input_ids": batch["text_input_ids"],
+                            "attention_mask": batch["text_attention_mask"],
+                            "max_length": 50,
+                            "temperature": 0.5,  # Lower temperature for more focused responses
+                            "top_k": 5,  # Restrict sampling to higher probability tokens
+                            "top_p": 0.92,  # Further restrict to most likely tokens
+                        }
+                        
+                        # Check if the model implementation supports repetition_penalty
+                        import inspect
+                        if 'repetition_penalty' in inspect.signature(self.model.generate_response).parameters:
+                            generate_params["repetition_penalty"] = 1.5
+                            
+                        generated_ids, decoded_texts = self.model.generate_response(**generate_params)
                         
                         # Create fallback responses based on classification
                         if "logits" in outputs:
