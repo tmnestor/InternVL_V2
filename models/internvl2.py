@@ -660,12 +660,21 @@ class InternVL2MultimodalModel(nn.Module):
         Returns:
             Dictionary with logits, embeddings, and text response
         """
+        # Ensure inputs require grad for proper backpropagation
+        if self.training and not pixel_values.requires_grad:
+            pixel_values.requires_grad_(True)
+            
         # Vision encoding with gradient checkpointing if training
         if hasattr(self.vision_encoder, 'gradient_checkpointing') and self.training:
             self.vision_encoder.gradient_checkpointing = True
+            
+        # Ensure all modules are in consistent dtype (float32) before forward pass
+        if pixel_values.dtype != torch.float32:
+            pixel_values = pixel_values.to(torch.float32)
         
-        # Use torch.cuda.amp.autocast for reduced precision during forward
-        with torch.cuda.amp.autocast(enabled=torch.cuda.is_available() and self.training):
+        # Use torch.amp.autocast for reduced precision during forward (updated API)
+        with torch.amp.autocast(device_type='cuda' if torch.cuda.is_available() else 'cpu', 
+                               enabled=torch.cuda.is_available() and self.training):
             vision_outputs = self.vision_encoder(pixel_values=pixel_values)
             
             # Extract image embeddings

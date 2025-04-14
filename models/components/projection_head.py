@@ -81,10 +81,8 @@ class ClassificationHead(nn.Module):
         # Create sequential model
         self.mlp = nn.Sequential(*layers)
         
-        # Convert model to bfloat16 if using GPU with bfloat16 support
-        if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8:
-            # Get majority dtype of tensors in the model
-            self.mlp = self.mlp.to(torch.bfloat16)
+        # Keep model in float32 for maximum compatibility
+        # We'll handle precision dynamically in forward method
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -96,10 +94,14 @@ class ClassificationHead(nn.Module):
         Returns:
             Logits tensor of shape [batch_size, output_dim]
         """
-        # Check for dtype compatibility with first linear layer
-        if len(self.mlp) > 0 and hasattr(self.mlp[0], 'weight') and x.dtype != self.mlp[0].weight.dtype:
-            # Ensure input has same dtype as weights without logging
-            x = x.to(self.mlp[0].weight.dtype)
+        # Ensure input is in float32 for maximum compatibility
+        if x.dtype != torch.float32:
+            x = x.to(torch.float32)
+        
+        # Ensure all MLP layers are in float32
+        for module in self.mlp:
+            if hasattr(module, 'weight') and module.weight.dtype != torch.float32:
+                module.to(torch.float32)
         
         return self.mlp(x)
 
@@ -308,8 +310,22 @@ class ResponseGenerator(nn.Module):
         Returns:
             Dictionary with logits tensor [batch_size, seq_len, vocab_size]
         """
+        # Ensure input is in float32 for maximum compatibility
+        input_dtype = x.dtype
+        if input_dtype != torch.float32:
+            x = x.to(torch.float32)
+        
+        # Ensure feature_transformer modules are in float32
+        for module in self.feature_transformer:
+            if hasattr(module, 'weight') and module.weight.dtype != torch.float32:
+                module.to(torch.float32)
+        
+        # Ensure lm_head is in float32
+        if hasattr(self.lm_head, 'weight') and self.lm_head.weight.dtype != torch.float32:
+            self.lm_head.to(torch.float32)
+        
         # Process features with gradient checkpointing to reduce memory usage
-        if self.use_gradient_checkpointing and self.training:
+        if self.use_gradient_checkpointing and self.training and torch.is_grad_enabled() and x.requires_grad:
             # Use gradient checkpointing to save memory
             transformed = torch.utils.checkpoint.checkpoint(
                 self._feature_transform_fn, 
@@ -331,22 +347,30 @@ class ResponseGenerator(nn.Module):
                     chunk = transformed[:, i:end_idx, :]
                     
                     # Apply LM head with gradient checkpointing
-                    chunk_logits = torch.utils.checkpoint.checkpoint(
-                        self._lm_head_fn,
-                        chunk,
-                        use_reentrant=False
-                    )
+                    if torch.is_grad_enabled() and chunk.requires_grad:
+                        chunk_logits = torch.utils.checkpoint.checkpoint(
+                            self._lm_head_fn,
+                            chunk,
+                            use_reentrant=False
+                        )
+                    else:
+                        # Fallback if not tracking gradients
+                        chunk_logits = self.lm_head(chunk)
                     logits_list.append(chunk_logits)
                 
                 # Concatenate chunks back together
                 logits = torch.cat(logits_list, dim=1)
             else:
                 # If sequence is short enough, process all at once with checkpointing
-                logits = torch.utils.checkpoint.checkpoint(
-                    self._lm_head_fn,
-                    transformed,
-                    use_reentrant=False
-                )
+                if torch.is_grad_enabled() and transformed.requires_grad:
+                    logits = torch.utils.checkpoint.checkpoint(
+                        self._lm_head_fn,
+                        transformed,
+                        use_reentrant=False
+                    )
+                else:
+                    # Fallback if not tracking gradients
+                    logits = self.lm_head(transformed)
         else:
             # Standard forward pass without checkpointing for inference
             transformed = self.feature_transformer(x)  # [B, L, H]
