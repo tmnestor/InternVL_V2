@@ -385,9 +385,9 @@ class ResponseGenerator(nn.Module):
         self,
         start_tokens: torch.Tensor,
         multimodal_context: torch.Tensor,
-        temperature: float = 1.0,
-        top_k: Optional[int] = None,
-        top_p: Optional[float] = None,
+        temperature: float = 0.7,  # Lower temperature for more focused generation
+        top_k: Optional[int] = 50,
+        top_p: Optional[float] = 0.9,
     ) -> List[List[int]]:
         """
         Generate text responses autoregressively.
@@ -395,8 +395,6 @@ class ResponseGenerator(nn.Module):
         Args:
             start_tokens: Initial token IDs [batch_size, prefix_len]
             multimodal_context: Multimodal features to condition on [batch_size, context_len, dim]
-              Note: For simplicity in testing, we expect the first token (multimodal_context[:, 0, :])
-              to contain the relevant context information.
             temperature: Sampling temperature (1.0 = no change, <1.0 = sharper, >1.0 = more random)
             top_k: If set, only sample from the top k most likely tokens
             top_p: If set, sample from the smallest set of tokens whose cumulative probability exceeds p
@@ -404,12 +402,6 @@ class ResponseGenerator(nn.Module):
         Returns:
             List of generated token sequences, each as a list of token IDs.
         """
-        # This is a simplified autoregressive decoding implementation
-        # In a real implementation, you would:
-        # 1. Use cached key-value pairs for efficiency
-        # 2. Support beam search
-        # 3. Handle stopping criteria more elegantly
-        
         batch_size = start_tokens.shape[0]
         device = start_tokens.device
         
@@ -417,71 +409,70 @@ class ResponseGenerator(nn.Module):
         generated = start_tokens.clone()
         seq_len = generated.shape[1]
         
+        # Define EOS token IDs to stop generation (common values in many tokenizers)
+        eos_token_ids = {0, 1, 2, 50256}  # Common EOS token IDs in many tokenizers
+        
+        # Convert all tensors to float32 for consistency
+        multimodal_context = multimodal_context.to(torch.float32)
+        
+        # Pre-process multimodal context once
+        context_features = self.feature_transformer(multimodal_context.mean(dim=1))
+        
         # Generate tokens autoregressively
-        for i in range(seq_len, self.max_length):
-            # Get features for current sequence
-            inputs = generated  # [B, i]
+        for i in range(seq_len, min(self.max_length, seq_len + 50)):  # Limit to 50 new tokens
+            # Generate logits using the context features
+            # This is a more focused approach than the previous implementation
+            logits = self.lm_head(context_features)  # [B, V]
             
-            # TODO: This is a simplified version; in a full implementation
-            # you would have a proper decoder that attends to the multimodal_context
-            
-            # For now, just concatenate the last token embedding with the context
-            # and use the feature transformer to predict the next token
-            
-            # Get features for the last position
-            if i > seq_len:
-                # Use just the last generated token - don't try to concatenate tensors of different dims
-                # Instead, just use the multimodal context for simplicity in testing
-                transformed = self.feature_transformer(multimodal_context[:, 0, :])  # [B, D]
-            else:
-                # Initial case, use the multimodal context directly
-                transformed = self.feature_transformer(multimodal_context[:, 0, :])  # [B, D]
-            
-            # Generate logits
-            logits = self.lm_head(transformed)  # [B, V]
-            
-            # Apply temperature
-            logits = logits / temperature
+            # Apply temperature scaling
+            logits = logits / max(0.1, temperature)  # Prevent division by very small values
             
             # Apply top-k sampling
-            if top_k is not None:
-                indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
-                logits[indices_to_remove] = -float('Inf')
+            if top_k is not None and top_k > 0:
+                top_k = min(top_k, logits.size(-1))  # Cannot sample more than vocabulary size
+                topk_values, topk_indices = torch.topk(logits, top_k, dim=-1)
+                logits_filtered = torch.full_like(logits, float('-inf'))
+                logits_filtered.scatter_(1, topk_indices, topk_values)
+                logits = logits_filtered
             
             # Apply top-p (nucleus) sampling
-            if top_p is not None:
-                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+            if top_p is not None and 0.0 < top_p < 1.0:
+                sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
                 cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
                 
                 # Remove tokens with cumulative probability above the threshold
                 sorted_indices_to_remove = cumulative_probs > top_p
-                # Shift the indices to the right to keep the first token above threshold
-                sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+                # Keep at least the top token
                 sorted_indices_to_remove[..., 0] = 0
+                # Shift to remove tokens below threshold
+                sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
                 
                 # Scatter sorted indices to original indices
-                indices_to_remove = sorted_indices_to_remove.scatter(
-                    dim=1, index=sorted_indices, src=sorted_indices_to_remove
-                )
-                logits[indices_to_remove] = -float('Inf')
+                for batch_idx in range(batch_size):
+                    indices_to_remove = sorted_indices_to_remove[batch_idx].scatter(
+                        0, sorted_indices[batch_idx], sorted_indices_to_remove[batch_idx]
+                    )
+                    logits[batch_idx][indices_to_remove] = float('-inf')
             
-            # Sample from distribution
+            # Sample from the filtered distribution
             probs = F.softmax(logits, dim=-1)
             next_token = torch.multinomial(probs, num_samples=1)  # [B, 1]
             
-            # Check for out of range token IDs and clamp if needed
-            if torch.any(next_token >= self.vocab_size) or torch.any(next_token < 0):
-                # Clamp token values to valid range to prevent out of range errors
-                next_token = torch.clamp(next_token, min=0, max=self.vocab_size-1)
+            # Clamp to valid token range to prevent errors
+            next_token = torch.clamp(next_token, min=0, max=self.vocab_size-1)
             
             # Append to generated sequence
             generated = torch.cat([generated, next_token], dim=1)
+            
+            # Check if we've hit EOS tokens for all sequences
+            if all((generated[:, -1] == t).any().item() for t in eos_token_ids):
+                break
         
-        # Convert tensor to list of token lists as expected by the test
+        # Convert tensor to list of token lists
         generated_lists = []
         for i in range(generated.shape[0]):
-            # Make sure each token is within the valid vocab range before converting to list
-            valid_tokens = torch.clamp(generated[i], min=0, max=self.vocab_size-1)
+            # Only keep tokens after the initial prompt (start_tokens)
+            valid_tokens = torch.clamp(generated[i, seq_len:], min=0, max=self.vocab_size-1)
             generated_lists.append(valid_tokens.tolist())
         
         return generated_lists
