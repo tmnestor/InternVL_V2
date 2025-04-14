@@ -887,6 +887,39 @@ class InternVL2MultimodalModel(nn.Module):
         Returns:
             Dictionary of model inputs
         """
+        # Ensure the tokenizer is properly initialized
+        if not hasattr(self, 'tokenizer') or self.tokenizer is None:
+            # This should never happen with proper initialization, but add a fallback
+            try:
+                from transformers import AutoTokenizer
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    self.config["model"]["pretrained_path"],
+                    trust_remote_code=True,
+                    local_files_only=True
+                )
+            except Exception as e:
+                raise ValueError(f"Could not initialize tokenizer: {e}")
+        
+        # Prepare template responses in case generation fails
+        class_templates = [
+            "This is a tax document from the Australian Taxation Office.",
+            "I can see 1 receipt in this image.",
+            "I can see 2 receipts in this image.",
+            "I can see 3 receipts in this image.",
+            "I can see 4 receipts in this image.",
+            "I can see 5 receipts in this image."
+        ]
+        
+        # Pre-encode these templates for potential fallback
+        encoded_templates = self.tokenizer(
+            class_templates,
+            padding="max_length",
+            truncation=True,
+            max_length=128,
+            return_tensors="pt"
+        )
+        self._encoded_templates = encoded_templates.input_ids
+        
         # Tokenize text prompts
         tokenized = self.tokenizer(
             text_prompts,
