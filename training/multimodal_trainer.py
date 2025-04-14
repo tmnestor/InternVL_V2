@@ -72,6 +72,23 @@ class MultimodalTrainer:
         self.device = get_device()
         self.model.to(self.device)
         
+        # Set PyTorch CUDA memory settings to avoid OOM errors
+        if torch.cuda.is_available():
+            # Set PyTorch CUDA memory settings
+            torch.cuda.empty_cache()
+            
+            # Set expandable segments to True to avoid fragmentation
+            os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:128"
+            
+            # Log current memory usage
+            allocated = torch.cuda.memory_allocated() / 1024**3
+            reserved = torch.cuda.memory_reserved() / 1024**3
+            self.logger.info(f"GPU Memory: Allocated: {allocated:.2f} GB, Reserved: {reserved:.2f} GB")
+            
+            # Check if we need to reduce batch size due to memory constraints
+            if allocated > 16:
+                self.logger.warning("High GPU memory usage detected. Consider reducing batch size.")
+        
         # Apply torch.compile if available and enabled
         if (torch.cuda.is_available() and hasattr(torch, 'compile') and 
                 self.config["training"].get("torch_compile", False)):
@@ -367,14 +384,25 @@ class MultimodalTrainer:
         train_loader = self.dataloaders["train"]
         pbar = tqdm(train_loader, desc=f"Train Epoch {epoch}")
         
+        # Enable gradient accumulation to reduce memory usage
+        gradient_accumulation_steps = self.config["training"].get("gradient_accumulation_steps", 1)
+        effective_batch_size = gradient_accumulation_steps * train_loader.batch_size
+        self.logger.info(f"Using gradient accumulation with {gradient_accumulation_steps} steps")
+        self.logger.info(f"Effective batch size: {effective_batch_size}")
+        
         # Training loop
         for batch_idx, batch in enumerate(pbar):
+            # Free up memory before processing batch
+            if torch.cuda.is_available() and batch_idx % 10 == 0:
+                torch.cuda.empty_cache()
+            
             # Move data to device
             batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
                     for k, v in batch.items()}
             
-            # Zero gradients
-            self.optimizer.zero_grad()
+            # Zero gradients only at the beginning of accumulation steps
+            if batch_idx % gradient_accumulation_steps == 0:
+                self.optimizer.zero_grad()
             
             # Forward pass with mixed precision if enabled
             if self.use_mixed_precision:
@@ -392,25 +420,39 @@ class MultimodalTrainer:
                         attention_mask=batch["labels_attention_mask"]
                     )
                     
-                    loss = loss_dict["total_loss"]
+                    # Scale loss by accumulation steps
+                    loss = loss_dict["total_loss"] / gradient_accumulation_steps
                 
                 # Backward pass with gradient scaling
                 self.scaler.scale(loss).backward()
                 
-                # Gradient clipping
-                if self.clip_grad_norm > 0:
-                    self.scaler.unscale_(self.optimizer)
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.clip_grad_norm)
-                
-                # Update weights with gradient scaling
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+                # Only update weights at the end of accumulation steps or at the last batch
+                if (batch_idx + 1) % gradient_accumulation_steps == 0 or (batch_idx + 1) == len(train_loader):
+                    # Gradient clipping
+                    if self.clip_grad_norm > 0:
+                        self.scaler.unscale_(self.optimizer)
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.clip_grad_norm)
+                    
+                    # Update weights with gradient scaling
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                    
+                    # Zero gradients after update
+                    self.optimizer.zero_grad()
             else:
                 # Standard precision training
+                # Split input processing to reduce memory usage
+                with torch.no_grad():
+                    # Preprocess batch to reduce peak memory
+                    pixel_values = batch["pixel_values"]
+                    text_input_ids = batch["text_input_ids"]
+                    text_attention_mask = batch["text_attention_mask"]
+                
+                # Forward pass
                 outputs = self.model(
-                    pixel_values=batch["pixel_values"],
-                    text_input_ids=batch["text_input_ids"],
-                    attention_mask=batch["text_attention_mask"]
+                    pixel_values=pixel_values,
+                    text_input_ids=text_input_ids,
+                    attention_mask=text_attention_mask
                 )
                 
                 loss_dict = self.loss_fn(
@@ -420,20 +462,26 @@ class MultimodalTrainer:
                     attention_mask=batch["labels_attention_mask"]
                 )
                 
-                loss = loss_dict["total_loss"]
+                # Scale loss by accumulation steps
+                loss = loss_dict["total_loss"] / gradient_accumulation_steps
                 
                 # Backward pass
                 loss.backward()
                 
-                # Gradient clipping
-                if self.clip_grad_norm > 0:
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.clip_grad_norm)
-                
-                # Update weights
-                self.optimizer.step()
+                # Only update weights at the end of accumulation steps or at the last batch
+                if (batch_idx + 1) % gradient_accumulation_steps == 0 or (batch_idx + 1) == len(train_loader):
+                    # Gradient clipping
+                    if self.clip_grad_norm > 0:
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.clip_grad_norm)
+                    
+                    # Update weights
+                    self.optimizer.step()
+                    
+                    # Zero gradients after update
+                    self.optimizer.zero_grad()
             
-            # Update running losses
-            running_loss += loss.item()
+            # Update running losses (using the unscaled loss for logging)
+            running_loss += loss_dict["total_loss"].item()
             if "classification_loss" in loss_dict:
                 running_class_loss += loss_dict["classification_loss"].item()
             if "language_loss" in loss_dict:
@@ -445,14 +493,16 @@ class MultimodalTrainer:
                 total += batch["classification_labels"].size(0)
                 correct += predicted.eq(batch["classification_labels"]).sum().item()
             
-            # Collect text generation outputs for BLEU calculation
-            if "response_logits" in outputs:
+            # Collect text generation outputs for BLEU calculation 
+            # Only sample a few batches to save memory
+            if "response_logits" in outputs and batch_idx % 5 == 0:
                 # Get predictions (greedy decoding for efficiency during training)
-                pred_tokens = outputs["response_logits"].argmax(dim=-1)
+                with torch.no_grad():  # Don't track gradients here to save memory
+                    pred_tokens = outputs["response_logits"].argmax(dim=-1)
                 
                 # Convert to text for metric calculation
                 tokenizer = self.model.tokenizer
-                for i in range(min(3, pred_tokens.size(0))):  # Only decode a few samples to save time
+                for i in range(min(2, pred_tokens.size(0))):  # Only decode a couple samples to save time
                     try:
                         # Filter out negative or extremely large token IDs that may cause overflow
                         pred_tokens_valid = [t.item() for t in pred_tokens[i] if 0 <= t.item() < tokenizer.vocab_size]
@@ -469,9 +519,18 @@ class MultimodalTrainer:
             
             # Update progress bar
             pbar.set_postfix({
-                'loss': loss.item(),
+                'loss': loss.item() * gradient_accumulation_steps, # Show unscaled loss
                 'acc': 100. * correct / max(1, total)
             })
+            
+            # Free up memory
+            del outputs
+            if batch_idx % gradient_accumulation_steps == 0:
+                # Manually trigger garbage collection
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
         
         # Calculate epoch metrics
         epoch_loss = running_loss / len(train_loader)
@@ -570,26 +629,36 @@ class MultimodalTrainer:
                 # Generate text responses for evaluation
                 if batch_idx % 5 == 0:  # Only generate for some batches to save time
                     try:
-                        # Generate responses
+                        # Generate responses with safer parameters
                         generated_ids, decoded_texts = self.model.generate_response(
                             pixel_values=batch["pixel_values"],
                             text_input_ids=batch["text_input_ids"],
                             attention_mask=batch["text_attention_mask"],
-                            max_length=50
+                            max_length=50,
+                            # Lower temperature and more constrained sampling for stability
+                            temperature=0.7,
+                            top_k=20,
+                            top_p=0.9
                         )
                         
                         # Get target texts for comparison
                         tokenizer = self.model.tokenizer
-                        target_texts = [
-                            tokenizer.decode(batch["labels"][i], skip_special_tokens=True)
-                            for i in range(len(decoded_texts))
-                        ]
+                        target_texts = []
+                        for i in range(len(decoded_texts)):
+                            try:
+                                # Ensure valid token IDs for decoding
+                                valid_tokens = [t for t in batch["labels"][i] if 0 <= t < tokenizer.vocab_size]
+                                target_texts.append(tokenizer.decode(valid_tokens, skip_special_tokens=True))
+                            except Exception as token_err:
+                                self.logger.warning(f"Error decoding target tokens: {token_err}")
+                                target_texts.append("")  # Use empty string as fallback
                         
                         # Add to collected predictions and targets
                         all_predictions.extend(decoded_texts)
                         all_targets.extend(target_texts)
                     except Exception as e:
                         self.logger.warning(f"Error during text generation: {e}")
+                        # Continue with validation despite errors
                 
                 # Update progress bar
                 pbar.set_postfix({

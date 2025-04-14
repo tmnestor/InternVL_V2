@@ -48,7 +48,7 @@ dependencies:
     # Optional GPU acceleration packages - install separately when needed
     # For environments with CUDA properly set up:
     # - flash-attn>=2.5.0  # For efficient attention
-    # - xformers>=0.0.23  # For efficient attention
+    - xformers>=0.0.23  # For efficient attention
     # - deepspeed>=0.12.0  # For multi-GPU training
     # - triton>=2.0.0  # For faster kernels
     

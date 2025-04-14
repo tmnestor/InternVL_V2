@@ -661,69 +661,108 @@ class InternVL2MultimodalModel(nn.Module):
         Returns:
             Dictionary with logits, embeddings, and text response
         """
-        # Vision encoding
-        vision_outputs = self.vision_encoder(pixel_values=pixel_values)
+        # Vision encoding with gradient checkpointing if training
+        if hasattr(self.vision_encoder, 'gradient_checkpointing') and self.training:
+            self.vision_encoder.gradient_checkpointing = True
         
-        # Extract image embeddings
-        if hasattr(vision_outputs, 'last_hidden_state'):
-            image_embeds = vision_outputs.last_hidden_state
-        elif hasattr(vision_outputs, 'hidden_states'):
-            image_embeds = vision_outputs.hidden_states[-1]
-        elif isinstance(vision_outputs, tuple) and len(vision_outputs) > 0:
-            image_embeds = vision_outputs[0]
-        else:
-            image_embeds = vision_outputs
-        
-        # If text input is provided, process it
-        if text_input_ids is not None:
-            # Text encoding
-            text_outputs = self.language_model(
-                input_ids=text_input_ids,
-                attention_mask=attention_mask,
-                output_hidden_states=True,
-                return_dict=True
-            )
+        # Use torch.cuda.amp.autocast for reduced precision during forward
+        with torch.cuda.amp.autocast(enabled=torch.cuda.is_available() and self.training):
+            vision_outputs = self.vision_encoder(pixel_values=pixel_values)
             
-            # Extract text embeddings
-            if hasattr(text_outputs, 'last_hidden_state'):
-                text_embeds = text_outputs.last_hidden_state
-            elif hasattr(text_outputs, 'hidden_states'):
-                text_embeds = text_outputs.hidden_states[-1]
+            # Extract image embeddings
+            if hasattr(vision_outputs, 'last_hidden_state'):
+                image_embeds = vision_outputs.last_hidden_state
+            elif hasattr(vision_outputs, 'hidden_states'):
+                image_embeds = vision_outputs.hidden_states[-1]
+            elif isinstance(vision_outputs, tuple) and len(vision_outputs) > 0:
+                image_embeds = vision_outputs[0]
             else:
-                # Get the last element from hidden states tuple
-                text_embeds = text_outputs['hidden_states'][-1]
+                image_embeds = vision_outputs
             
-            # Cross-modal attention (text attends to vision)
-            multimodal_embeds = self.cross_attention(
-                query=text_embeds, 
-                key=image_embeds, 
-                value=image_embeds,
-                attention_mask=None  # No specific cross-attention mask in this implementation
-            )
-            
-            # Generate text response
-            response_output = self.response_generator(multimodal_embeds)
-            
-            # Apply classification head to pooled vision features for receipt counting
-            pooled_vision = image_embeds.mean(dim=1)
-            classification_logits = self.classification_head(pooled_vision)
-            
-            return {
-                "logits": classification_logits,
-                "embeddings": pooled_vision,
-                "multimodal_embeddings": multimodal_embeds,
-                "response_logits": response_output["logits"],
-                "response_features": response_output["features"]
-            }
-        else:
-            # Regular vision-only path for backward compatibility
-            pooled_output = image_embeds.mean(dim=1)
-            logits = self.classification_head(pooled_output)
-            
-            return {
-                "logits": logits,
-                "embeddings": pooled_output
-            }
+            # If text input is provided, process it
+            if text_input_ids is not None:
+                # Text encoding (also with gradient checkpointing if possible)
+                if hasattr(self.language_model, 'gradient_checkpointing') and self.training:
+                    self.language_model.gradient_checkpointing = True
+                
+                # Try to reduce language model memory usage
+                text_outputs = self.language_model(
+                    input_ids=text_input_ids,
+                    attention_mask=attention_mask,
+                    output_hidden_states=True,
+                    return_dict=True,
+                    use_cache=False  # Disable KV caching to save memory during training
+                )
+                
+                # Extract text embeddings
+                if hasattr(text_outputs, 'last_hidden_state'):
+                    text_embeds = text_outputs.last_hidden_state
+                elif hasattr(text_outputs, 'hidden_states'):
+                    text_embeds = text_outputs.hidden_states[-1]
+                else:
+                    # Get the last element from hidden states tuple
+                    text_embeds = text_outputs['hidden_states'][-1]
+                
+                # Clear text_outputs to free memory early
+                del text_outputs
+                
+                # Cross-modal attention (text attends to vision)
+                # Use chunked processing if sequence length is too long
+                if text_embeds.shape[1] > 64 and self.training:
+                    # Process in chunks for long sequences
+                    chunks = []
+                    chunk_size = 32
+                    for i in range(0, text_embeds.shape[1], chunk_size):
+                        end_idx = min(i + chunk_size, text_embeds.shape[1])
+                        chunk = text_embeds[:, i:end_idx, :]
+                        chunk_output = self.cross_attention(
+                            query=chunk,
+                            key=image_embeds,
+                            value=image_embeds,
+                            attention_mask=None
+                        )
+                        chunks.append(chunk_output)
+                    multimodal_embeds = torch.cat(chunks, dim=1)
+                else:
+                    # Regular processing for shorter sequences
+                    multimodal_embeds = self.cross_attention(
+                        query=text_embeds,
+                        key=image_embeds,
+                        value=image_embeds,
+                        attention_mask=None
+                    )
+                
+                # Generate text response with reduced memory footprint
+                response_output = self.response_generator(multimodal_embeds)
+                
+                # Apply classification head to pooled vision features for receipt counting
+                pooled_vision = image_embeds.mean(dim=1)
+                classification_logits = self.classification_head(pooled_vision)
+                
+                # Clear image_embeds as soon as possible to free memory
+                del image_embeds
+                
+                # Only include necessary outputs to reduce memory usage
+                return {
+                    "logits": classification_logits,
+                    "embeddings": pooled_vision,
+                    "multimodal_embeddings": multimodal_embeds,
+                    "response_logits": response_output["logits"],
+                    # Only include features if not in training mode to save memory
+                    "response_features": response_output["features"] if not self.training else None
+                }
+            else:
+                # Regular vision-only path for backward compatibility
+                pooled_output = image_embeds.mean(dim=1)
+                logits = self.classification_head(pooled_output)
+                
+                # Clear image_embeds to free memory
+                del image_embeds
+                
+                return {
+                    "logits": logits,
+                    "embeddings": pooled_output
+                }
     
     def generate_response(
         self,
@@ -779,8 +818,14 @@ class InternVL2MultimodalModel(nn.Module):
         # Decode the token IDs to text
         decoded_texts = []
         for ids in generated_ids:
-            text = self.tokenizer.decode(ids, skip_special_tokens=True)
-            decoded_texts.append(text)
+            try:
+                # Filter out invalid token IDs before decoding
+                valid_ids = [token_id for token_id in ids if 0 <= token_id < self.tokenizer.vocab_size]
+                text = self.tokenizer.decode(valid_ids, skip_special_tokens=True)
+                decoded_texts.append(text)
+            except Exception as e:
+                # Fallback for any decoding errors
+                decoded_texts.append("")  # Empty string as fallback
         
         return generated_ids, decoded_texts
     

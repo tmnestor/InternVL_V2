@@ -286,6 +286,17 @@ class ResponseGenerator(nn.Module):
         
         # Output projection to vocabulary
         self.lm_head = nn.Linear(prev_dim, vocab_size)
+        
+        # Enable gradient checkpointing to save memory
+        self.use_gradient_checkpointing = True
+    
+    def _feature_transform_fn(self, x):
+        """Helper function for gradient checkpointing"""
+        return self.feature_transformer(x)
+    
+    def _lm_head_fn(self, x):
+        """Helper function for gradient checkpointing"""
+        return self.lm_head(x)
     
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
@@ -297,11 +308,49 @@ class ResponseGenerator(nn.Module):
         Returns:
             Dictionary with logits tensor [batch_size, seq_len, vocab_size]
         """
-        # Process features
-        transformed = self.feature_transformer(x)  # [B, L, H]
-        
-        # Generate logits for each token position
-        logits = self.lm_head(transformed)  # [B, L, V]
+        # Process features with gradient checkpointing to reduce memory usage
+        if self.use_gradient_checkpointing and self.training:
+            # Use gradient checkpointing to save memory
+            transformed = torch.utils.checkpoint.checkpoint(
+                self._feature_transform_fn, 
+                x,
+                use_reentrant=False  # Per CLAUDE.md instructions to avoid warnings in PyTorch 2.0+
+            )
+            
+            # Low-rank adaptation for large vocabulary output
+            batch_size, seq_len, hidden_dim = transformed.shape
+            
+            # Process in smaller chunks if sequence is too long
+            if seq_len > 64:
+                # Split processing into chunks to reduce memory usage
+                logits_list = []
+                chunk_size = 32  # Process 32 tokens at a time
+                
+                for i in range(0, seq_len, chunk_size):
+                    end_idx = min(i + chunk_size, seq_len)
+                    chunk = transformed[:, i:end_idx, :]
+                    
+                    # Apply LM head with gradient checkpointing
+                    chunk_logits = torch.utils.checkpoint.checkpoint(
+                        self._lm_head_fn,
+                        chunk,
+                        use_reentrant=False
+                    )
+                    logits_list.append(chunk_logits)
+                
+                # Concatenate chunks back together
+                logits = torch.cat(logits_list, dim=1)
+            else:
+                # If sequence is short enough, process all at once with checkpointing
+                logits = torch.utils.checkpoint.checkpoint(
+                    self._lm_head_fn,
+                    transformed,
+                    use_reentrant=False
+                )
+        else:
+            # Standard forward pass without checkpointing for inference
+            transformed = self.feature_transformer(x)  # [B, L, H]
+            logits = self.lm_head(transformed)  # [B, L, V]
         
         return {
             "logits": logits,
@@ -396,12 +445,19 @@ class ResponseGenerator(nn.Module):
             probs = F.softmax(logits, dim=-1)
             next_token = torch.multinomial(probs, num_samples=1)  # [B, 1]
             
+            # Check for out of range token IDs and clamp if needed
+            if torch.any(next_token >= self.vocab_size) or torch.any(next_token < 0):
+                # Clamp token values to valid range to prevent out of range errors
+                next_token = torch.clamp(next_token, min=0, max=self.vocab_size-1)
+            
             # Append to generated sequence
             generated = torch.cat([generated, next_token], dim=1)
         
         # Convert tensor to list of token lists as expected by the test
         generated_lists = []
         for i in range(generated.shape[0]):
-            generated_lists.append(generated[i].tolist())
+            # Make sure each token is within the valid vocab range before converting to list
+            valid_tokens = torch.clamp(generated[i], min=0, max=self.vocab_size-1)
+            generated_lists.append(valid_tokens.tolist())
         
         return generated_lists
