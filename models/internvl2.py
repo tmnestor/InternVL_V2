@@ -7,11 +7,10 @@ This module adapts the InternVL2 vision-language model for:
 """
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 from models.components.projection_head import ClassificationHead, CrossAttention, ResponseGenerator
@@ -823,7 +822,7 @@ class InternVL2MultimodalModel(nn.Module):
                 valid_ids = [token_id for token_id in ids if 0 <= token_id < self.tokenizer.vocab_size]
                 text = self.tokenizer.decode(valid_ids, skip_special_tokens=True)
                 decoded_texts.append(text)
-            except Exception as e:
+            except Exception:
                 # Fallback for any decoding errors
                 decoded_texts.append("")  # Empty string as fallback
         

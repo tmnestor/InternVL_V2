@@ -9,7 +9,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -20,7 +20,7 @@ from tqdm import tqdm
 
 from models.internvl2 import InternVL2MultimodalModel
 from training.multimodal_loss import MultimodalLoss
-from utils.device import get_device, to_device
+from utils.device import get_device
 from utils.logging import TensorboardLogger
 from utils.metrics import compute_nlg_metrics
 
