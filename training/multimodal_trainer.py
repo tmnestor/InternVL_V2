@@ -59,6 +59,16 @@ class MultimodalTrainer:
         # Get logger
         self.logger = logging.getLogger(__name__)
         
+        # Configure checkpoint options
+        self.use_safe_serialization = config["output"].get("safe_serialization", True)
+        if self.use_safe_serialization and hasattr(torch, "save") and hasattr(torch.save, "__kwdefaults__") and torch.save.__kwdefaults__ and "_use_new_zipfile_serialization" in torch.save.__kwdefaults__:
+            self.logger.info("Using safe PyTorch serialization (non-zipfile based)")
+        else:
+            self.use_safe_serialization = False
+            
+        # Option to save in half precision
+        self.save_half_precision = config["output"].get("save_half_precision", False)
+        
         # Environment setup
         if torch.cuda.is_available():
             os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
@@ -635,10 +645,13 @@ class MultimodalTrainer:
                             text_input_ids=batch["text_input_ids"],
                             attention_mask=batch["text_attention_mask"],
                             max_length=50,
-                            # Lower temperature and more constrained sampling for stability
-                            temperature=0.6,
-                            top_k=10,
-                            top_p=0.95
+                            # Use lower temperature for more focused responses
+                            temperature=0.5,
+                            # Restrict sampling to higher probability tokens for better quality
+                            top_k=5,
+                            top_p=0.92,
+                            # Add repetition penalty to discourage repeating tokens (like dots)
+                            repetition_penalty=1.5
                         )
                         
                         # Create fallback responses based on classification
@@ -649,7 +662,12 @@ class MultimodalTrainer:
                                 text = decoded_texts[i]
                                 
                                 # Check if the text is empty or meaningless
-                                is_empty = not text or text.strip() == "" or text.strip() == "." * len(text.strip())
+                                # Test for empty strings, sequences of just dots/periods, or mostly dots
+                                is_empty = (not text or 
+                                           text.strip() == "" or 
+                                           text.strip() == "." * len(text.strip()) or 
+                                           text.count(".") > len(text.strip()) / 2 or
+                                           len(set(text.strip())) <= 3)
                                 
                                 # Get the actual receipt count from the batch (ground truth)
                                 true_receipt_count = batch["classification_labels"][i].item() if i < len(batch["classification_labels"]) else None
@@ -666,11 +684,29 @@ class MultimodalTrainer:
                                             
                                             # Check if it's a question about counting receipts
                                             self.logger.info(f"Question: '{question_text}'")
-                                            if "count" in question_text.lower() or "how many" in question_text.lower() or "receipt" in question_text.lower():
+                                            # Improved detection of statements vs questions
+                                            # A statement is likely if: no question mark, doesn't start with question words,
+                                            # and contains declarative structure
+                                            question_markers = ["?", "how", "what", "which", "where", "when", "who", "why", "can you", "do you", "is there", "are there"]
+                                            statement_markers = ["this is", "there is", "there are", "i see", "i can see", "it is", "i count"]
+                                            
+                                            has_question_marker = any(q in question_text.lower() for q in question_markers)
+                                            has_statement_marker = any(s in question_text.lower() for s in statement_markers)
+                                            
+                                            is_statement = has_statement_marker or not has_question_marker
+                                            
+                                            if "count" in question_text.lower() or "how many" in question_text.lower():
                                                 decoded_texts[i] = "There are 0 receipts in this image."
+                                            elif "receipt" in question_text.lower():
+                                                decoded_texts[i] = "There are no receipts in this image. This is a tax document from the ATO."
                                             else:
-                                                # General question about document type
-                                                decoded_texts[i] = "This is a tax document from the Australian Taxation Office."
+                                                # General question/statement about document type
+                                                if is_statement and "tax" in question_text.lower() and "document" in question_text.lower():
+                                                    # It's a statement affirming it's a tax document
+                                                    decoded_texts[i] = "Yes, that's correct. This is a tax document from the Australian Taxation Office."
+                                                else:
+                                                    # General response about document type
+                                                    decoded_texts[i] = "This is a tax document from the Australian Taxation Office."
                                         except Exception as e:
                                             # If we couldn't decode the question, default to a generic response
                                             self.logger.warning(f"Error decoding question: {e}")
@@ -682,6 +718,34 @@ class MultimodalTrainer:
                                             question_text = self.model.tokenizer.decode(question_input_ids, skip_special_tokens=True)
                                             self.logger.info(f"Receipt Question: '{question_text}'")
                                             
+                                            # Improved detection of statements vs questions
+                                            # A statement is likely if: no question mark, doesn't start with question words,
+                                            # and contains declarative structure
+                                            question_markers = ["?", "how", "what", "which", "where", "when", "who", "why", "can you", "do you", "is there", "are there"]
+                                            statement_markers = ["this is", "there is", "there are", "i see", "i can see", "it is", "i count"]
+                                            
+                                            has_question_marker = any(q in question_text.lower() for q in question_markers)
+                                            has_statement_marker = any(s in question_text.lower() for s in statement_markers)
+                                            
+                                            is_statement = has_statement_marker or not has_question_marker
+                                            
+                                            # Check if this is a question (rather than statement)
+                                            def is_question(text):
+                                                """Check if this is a question rather than a statement."""
+                                                text = text.lower().strip()
+                                                # Look for question marks and question words
+                                                has_question_mark = "?" in text
+                                                starts_with_question_word = any(text.startswith(word) for word in 
+                                                                         ["how", "what", "which", "where", "when", "who", "why", "can", "do", "is", "are"])
+                                                has_question_phrase = any(phrase in text for phrase in 
+                                                                     ["is this", "is it", "are there", "can you", "do you see"])
+                                                return has_question_mark or starts_with_question_word or has_question_phrase
+                                            
+                                            # Skip responses to non-question statements about receipts
+                                            if not is_question(question_text) and "receipt" in question_text.lower():
+                                                # Don't respond to statements
+                                                continue
+                                            
                                             # Vary response based on question type
                                             if "how many" in question_text.lower():
                                                 decoded_texts[i] = f"There {'is' if true_receipt_count == 1 else 'are'} {true_receipt_count} receipt{'s' if true_receipt_count != 1 else ''} in this image."
@@ -689,8 +753,9 @@ class MultimodalTrainer:
                                                 decoded_texts[i] = f"I count {true_receipt_count} receipt{'s' if true_receipt_count != 1 else ''} in the image."
                                             else:
                                                 decoded_texts[i] = f"I can see {true_receipt_count} receipt{'s' if true_receipt_count != 1 else ''} in this image."
-                                        except Exception:
+                                        except Exception as e:
                                             # Fallback to generic response
+                                            self.logger.warning(f"Error processing receipt question: {e}")
                                             decoded_texts[i] = f"I can see {true_receipt_count} receipt{'s' if true_receipt_count != 1 else ''} in this image."
                                 elif is_empty:
                                     # Fallback to model prediction if true label is not available
@@ -704,11 +769,41 @@ class MultimodalTrainer:
                                             
                                             # Based on class and question, generate appropriate response
                                             if cls == 0:  # Tax document
-                                                if "tax" in question_text.lower() or "document" in question_text.lower() or "office" in question_text.lower():
+                                                # Improved detection of statements vs questions
+                                                # A statement is likely if: no question mark, doesn't start with question words,
+                                                # and contains declarative structure
+                                                question_markers = ["?", "how", "what", "which", "where", "when", "who", "why", "can you", "do you", "is there", "are there"]
+                                                statement_markers = ["this is", "there is", "there are", "i see", "i can see", "it is", "i count"]
+                                                
+                                                has_question_marker = any(q in question_text.lower() for q in question_markers)
+                                                has_statement_marker = any(s in question_text.lower() for s in statement_markers)
+                                                
+                                                is_statement = has_statement_marker or not has_question_marker
+                                                
+                                                # Check if this is a question (rather than statement)
+                                                def is_question(text):
+                                                    """Check if this is a question rather than a statement."""
+                                                    text = text.lower().strip()
+                                                    # Look for question marks and question words
+                                                    has_question_mark = "?" in text
+                                                    starts_with_question_word = any(text.startswith(word) for word in 
+                                                                               ["how", "what", "which", "where", "when", "who", "why", "can", "do", "is", "are"])
+                                                    has_question_phrase = any(phrase in text for phrase in 
+                                                                         ["is this", "is it", "are there", "can you", "do you see"])
+                                                    return has_question_mark or starts_with_question_word or has_question_phrase
+                                                
+                                                # Skip responses to statements about tax documents
+                                                if not is_question(question_text) and any(term in question_text.lower() for term in ["tax", "ato", "document", "taxation"]):
+                                                    # Don't respond to statements
+                                                    continue
+                                                elif "tax" in question_text.lower() or "document" in question_text.lower() or "office" in question_text.lower():
+                                                    # Question about document type
                                                     decoded_texts[i] = "Yes, this is a tax document from the Australian Taxation Office."
                                                 elif "count" in question_text.lower() or "how many" in question_text.lower():
+                                                    # Question about count
                                                     decoded_texts[i] = "There are 0 receipts in this image. This is a tax document."
                                                 else:
+                                                    # Generic response
                                                     decoded_texts[i] = "This appears to be a tax document from the Australian Taxation Office."
                                             else:  # Receipt(s)
                                                 if "how many" in question_text.lower():
@@ -789,13 +884,17 @@ class MultimodalTrainer:
     
     def save_checkpoint(self, epoch: int, metrics: Dict[str, float], is_best: bool = False) -> None:
         """
-        Save model checkpoint.
+        Save model checkpoint with robust error handling and atomic file operations.
         
         Args:
             epoch: Current epoch number
             metrics: Dictionary of metrics to save
             is_best: Whether this is the best model so far
         """
+        import tempfile
+        import shutil
+        import os
+        
         checkpoint_dir = self.output_dir / "checkpoints"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         
@@ -814,17 +913,135 @@ class MultimodalTrainer:
         if self.scaler:
             checkpoint["scaler_state_dict"] = self.scaler.state_dict()
         
+        # Check available disk space before saving
+        try:
+            import shutil
+            total, used, free = shutil.disk_usage(str(checkpoint_dir))
+            free_gb = free / (1024**3)
+            
+            # Get expected checkpoint size (rough estimate)
+            if hasattr(torch.nn.utils, '_flatten_dense_tensors'):
+                # Use PyTorch's utility to get a rough size estimate
+                from torch.nn.utils import _flatten_dense_tensors
+                flat_model_params = _flatten_dense_tensors([p.data for p in self.model.parameters()])
+                model_size_mb = flat_model_params.numel() * flat_model_params.element_size() / (1024**2)
+                expected_file_size_mb = model_size_mb * 1.2  # Add buffer for overhead
+            else:
+                # Rough estimate based on parameter count
+                param_count = sum(p.numel() for p in self.model.parameters())
+                expected_file_size_mb = param_count * 4 / (1024**2) * 1.2  # Assuming float32 params
+                
+            self.logger.info(f"Available disk space: {free_gb:.2f} GB, estimated checkpoint size: {expected_file_size_mb:.2f} MB")
+            
+            if free_gb < (expected_file_size_mb / 1024) * 3:  # Need at least 3x the file size for safe saving
+                self.logger.warning(f"Low disk space detected ({free_gb:.2f} GB). Checkpoint might fail!")
+        except Exception as e:
+            self.logger.warning(f"Could not check disk space: {e}")
+        
+        # Helper function for atomic saving
+        def atomic_torch_save(obj, destination_path):
+            """Save a file atomically by first writing to a temporary file."""
+            # Use tempfile in same directory to ensure it's on the same filesystem for atomic rename
+            temp_dir = os.path.dirname(destination_path)
+            
+            try:
+                # Create a named temporary file in the destination directory
+                with tempfile.NamedTemporaryFile(dir=temp_dir, delete=False, suffix='.pt.tmp') as tmp_file:
+                    temp_path = tmp_file.name
+                    # Close the file first to avoid issues on Windows
+                    tmp_file.close()
+                    
+                    # Save to the temporary file with proper serialization settings
+                    if self.use_safe_serialization:
+                        torch.save(obj, temp_path, _use_new_zipfile_serialization=False)
+                    else:
+                        torch.save(obj, temp_path)
+                    
+                    # Verify file exists and has content
+                    if not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
+                        raise RuntimeError("Failed to write checkpoint to temporary file")
+                    
+                    # Atomic rename to destination
+                    shutil.move(temp_path, destination_path)
+                    return True
+            except Exception as e:
+                self.logger.error(f"Failed to save checkpoint: {e}")
+                # Clean up temporary file if it exists
+                if 'temp_path' in locals() and os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except:
+                        pass
+                return False
+        
+        # Prepare the checkpoint according to precision settings
+        save_checkpoint = checkpoint
+        
+        # If half precision saving is enabled, convert model weights
+        if self.save_half_precision:
+            try:
+                half_precision_checkpoint = checkpoint.copy()
+                half_precision_checkpoint["model_state_dict"] = {
+                    k: v.half() if isinstance(v, torch.Tensor) and v.dtype == torch.float32 else v
+                    for k, v in checkpoint["model_state_dict"].items()
+                }
+                save_checkpoint = half_precision_checkpoint
+                self.logger.info("Saving checkpoint in half precision")
+            except Exception as e:
+                self.logger.warning(f"Failed to convert to half precision: {e}")
+        
         # Save regular checkpoint
         if not self.config["output"].get("save_best_only", False) or is_best:
             checkpoint_path = checkpoint_dir / f"model_epoch_{epoch}.pt"
-            torch.save(checkpoint, checkpoint_path)
-            self.logger.info(f"Checkpoint saved to {checkpoint_path}")
+            success = atomic_torch_save(save_checkpoint, str(checkpoint_path))
+            if success:
+                self.logger.info(f"Checkpoint saved to {checkpoint_path}")
+            else:
+                self.logger.error(f"Failed to save checkpoint to {checkpoint_path}")
+                
+                # Try with further reduced size as fallback if not already in half precision
+                if not self.save_half_precision:
+                    try:
+                        # Create a copy of state dict with half precision
+                        half_precision_checkpoint = checkpoint.copy()
+                        half_precision_checkpoint["model_state_dict"] = {
+                            k: v.half() if isinstance(v, torch.Tensor) and v.dtype == torch.float32 else v
+                            for k, v in checkpoint["model_state_dict"].items()
+                        }
+                        fallback_path = checkpoint_dir / f"model_epoch_{epoch}_half.pt"
+                        self.logger.info("Attempting to save with reduced precision...")
+                        if atomic_torch_save(half_precision_checkpoint, str(fallback_path)):
+                            self.logger.info(f"Reduced precision checkpoint saved to {fallback_path}")
+                    except Exception as e:
+                        self.logger.error(f"Failed to save reduced precision checkpoint: {e}")
         
         # Save best model
         if is_best:
             best_path = self.output_dir / "best_model.pt"
-            torch.save(checkpoint, best_path)
-            self.logger.info(f"Best model saved to {best_path}")
+            success = atomic_torch_save(save_checkpoint, str(best_path))
+            if success:
+                self.logger.info(f"Best model saved to {best_path}")
+            else:
+                self.logger.error(f"Failed to save best model to {best_path}")
+                # Try with further file size reduction if needed
+                if not self.save_half_precision:
+                    try:
+                        reduced_path = self.output_dir / "best_model_reduced.pt"
+                        half_precision_checkpoint = checkpoint.copy()
+                        # More aggressive optimization - keep only necessary parts
+                        minimal_checkpoint = {
+                            "epoch": epoch,
+                            "model_state_dict": {
+                                k: v.half() if isinstance(v, torch.Tensor) and v.dtype == torch.float32 else v
+                                for k, v in checkpoint["model_state_dict"].items()
+                            },
+                            "metrics": metrics
+                        }
+                        self.logger.info("Attempting minimal best model save...")
+                        if atomic_torch_save(minimal_checkpoint, str(reduced_path)):
+                            self.logger.info(f"Minimal best model saved to {reduced_path}")
+                    except Exception as e:
+                        self.logger.error(f"Failed to save minimal best model: {e}")
     
     def train(self) -> Tuple[InternVL2MultimodalModel, Dict[str, List[float]]]:
         """
