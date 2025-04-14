@@ -994,44 +994,82 @@ class MultimodalTrainer:
             except Exception as e:
                 self.logger.warning(f"Failed to convert to half precision: {e}")
         
-        # Save regular checkpoint
-        if not self.config["output"].get("save_best_only", False) or is_best:
+        # Configure save strategy based on disk space conservation
+        # By default, we'll use best-only to save space
+        save_best_only = self.config["output"].get("save_best_only", True) 
+        
+        # Create last checkpoint symlink to preserve info about latest checkpoint without storing duplicates
+        last_checkpoint_path = self.output_dir / "last_checkpoint.pt"
+        
+        # Save regular checkpoint only if explicitly configured or is the best
+        if (not save_best_only and epoch % self.config["output"].get("save_frequency", 5) == 0) or is_best:
             checkpoint_path = checkpoint_dir / f"model_epoch_{epoch}.pt"
             success = atomic_torch_save(save_checkpoint, str(checkpoint_path))
             if success:
                 self.logger.info(f"Checkpoint saved to {checkpoint_path}")
+                
+                # Create or update symlink to last checkpoint 
+                try:
+                    if os.path.exists(str(last_checkpoint_path)):
+                        os.remove(str(last_checkpoint_path))
+                    os.symlink(str(checkpoint_path), str(last_checkpoint_path))
+                except Exception as e:
+                    self.logger.warning(f"Failed to create symlink to last checkpoint: {e}")
             else:
                 self.logger.error(f"Failed to save checkpoint to {checkpoint_path}")
                 
-                # Try with further reduced size as fallback if not already in half precision
+                # Try with reduced size as fallback if not already in half precision
                 if not self.save_half_precision:
                     try:
                         # Create a copy of state dict with half precision
-                        half_precision_checkpoint = checkpoint.copy()
-                        half_precision_checkpoint["model_state_dict"] = {
-                            k: v.half() if isinstance(v, torch.Tensor) and v.dtype == torch.float32 else v
-                            for k, v in checkpoint["model_state_dict"].items()
-                        }
                         fallback_path = checkpoint_dir / f"model_epoch_{epoch}_half.pt"
+                        minimal_checkpoint = {
+                            "epoch": epoch,
+                            "model_state_dict": {
+                                k: v.half() if isinstance(v, torch.Tensor) and v.dtype == torch.float32 else v
+                                for k, v in checkpoint["model_state_dict"].items()
+                            },
+                            "optimizer_state_dict": self.optimizer.state_dict(),
+                            "metrics": metrics
+                        }
                         self.logger.info("Attempting to save with reduced precision...")
-                        if atomic_torch_save(half_precision_checkpoint, str(fallback_path)):
+                        if atomic_torch_save(minimal_checkpoint, str(fallback_path)):
                             self.logger.info(f"Reduced precision checkpoint saved to {fallback_path}")
+                            
+                            # Update symlink to last checkpoint even if fallback
+                            try:
+                                if os.path.exists(str(last_checkpoint_path)):
+                                    os.remove(str(last_checkpoint_path))
+                                os.symlink(str(fallback_path), str(last_checkpoint_path))
+                            except Exception as e:
+                                self.logger.warning(f"Failed to create symlink to fallback checkpoint: {e}")
                     except Exception as e:
                         self.logger.error(f"Failed to save reduced precision checkpoint: {e}")
         
-        # Save best model
+        # Always save the best model
         if is_best:
             best_path = self.output_dir / "best_model.pt"
             success = atomic_torch_save(save_checkpoint, str(best_path))
             if success:
                 self.logger.info(f"Best model saved to {best_path}")
+                
+                # Clean up old checkpoints if using save_best_only mode
+                if save_best_only:
+                    try:
+                        # Keep only best model and current checkpoint
+                        for old_ckpt in checkpoint_dir.glob("model_epoch_*.pt"):
+                            if str(old_ckpt) != str(checkpoint_path) and "epoch" in str(old_ckpt):
+                                os.remove(str(old_ckpt))
+                                self.logger.info(f"Removed old checkpoint: {old_ckpt}")
+                    except Exception as e:
+                        self.logger.warning(f"Failed to clean up old checkpoints: {e}")
+                    
             else:
                 self.logger.error(f"Failed to save best model to {best_path}")
                 # Try with further file size reduction if needed
                 if not self.save_half_precision:
                     try:
-                        reduced_path = self.output_dir / "best_model_reduced.pt"
-                        half_precision_checkpoint = checkpoint.copy()
+                        minimal_best_path = self.output_dir / "best_model_minimal.pt"
                         # More aggressive optimization - keep only necessary parts
                         minimal_checkpoint = {
                             "epoch": epoch,
@@ -1042,8 +1080,8 @@ class MultimodalTrainer:
                             "metrics": metrics
                         }
                         self.logger.info("Attempting minimal best model save...")
-                        if atomic_torch_save(minimal_checkpoint, str(reduced_path)):
-                            self.logger.info(f"Minimal best model saved to {reduced_path}")
+                        if atomic_torch_save(minimal_checkpoint, str(minimal_best_path)):
+                            self.logger.info(f"Minimal best model saved to {minimal_best_path}")
                     except Exception as e:
                         self.logger.error(f"Failed to save minimal best model: {e}")
     
