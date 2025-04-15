@@ -149,11 +149,35 @@ def compute_nlg_metrics(
         # Also include BLEU-4 as the default BLEU metric
         metrics["bleu"] = metrics.get("bleu4", 0.0)
         
-        # Skip ROUGE scores - they can be added back later if needed
-        metrics["rouge1_f"] = 0.0
-        metrics["rouge2_f"] = 0.0
-        metrics["rougeL_f"] = 0.0
-        metrics["rouge_status"] = "Disabled for compatibility"
+        # Calculate custom text metrics (exact match and token overlap)
+        # Initialize metrics
+        exact_matches = 0
+        token_overlaps = []
+        
+        # Normalize and tokenize
+        norm_predictions = [p.lower().strip() for p in predictions]
+        norm_references = [r.lower().strip() for r in references]
+        
+        # Calculate metrics for each pair
+        for pred, ref in zip(norm_predictions, norm_references, strict=False):
+            # Exact match (case-insensitive)
+            if pred == ref:
+                exact_matches += 1
+            
+            # Token overlap (Jaccard similarity)
+            pred_tokens = set(pred.split())
+            ref_tokens = set(ref.split())
+            
+            if pred_tokens or ref_tokens:  # Avoid division by zero
+                overlap = len(pred_tokens.intersection(ref_tokens)) / len(pred_tokens.union(ref_tokens))
+                token_overlaps.append(overlap)
+        
+        # Calculate final metrics
+        metrics["exact_match"] = (exact_matches / len(predictions)) * 100 if predictions else 0.0
+        metrics["token_overlap"] = (sum(token_overlaps) / len(token_overlaps)) * 100 if token_overlaps else 0.0
+        
+        # Skip ROUGE scores
+        metrics["rouge_status"] = "Replaced with custom metrics"
     
     return metrics
 
