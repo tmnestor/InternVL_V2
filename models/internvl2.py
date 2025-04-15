@@ -802,61 +802,63 @@ class InternVL2MultimodalModel(nn.Module):
             pixel_values = pixel_values.to(torch.float32)
         
         # Run forward pass to get multimodal embeddings
-        with torch.no_grad():  # Use no_grad for inference
-            outputs = self.forward(
-                pixel_values=pixel_values, 
-                text_input_ids=text_input_ids, 
-                attention_mask=attention_mask
-            )
-            
-            # Get multimodal context for generation
-            multimodal_context = outputs["multimodal_embeddings"]
-            
-            # Prepare a simple prompt template for each class
-            batch_size = text_input_ids.shape[0]
-            
-            # Get class predictions
-            _, predicted_classes = outputs["logits"].max(1)
-            
-            # Create fixed response templates based on the predicted class
-            template_responses = []
-            for cls in predicted_classes:
-                if cls == 0:
-                    template = "Yes, this appears to be a tax document from the Australian Taxation Office."
-                else:
-                    # For receipt classes (1+), indicate number of receipts
-                    template = f"I can see {cls.item()} receipt{'s' if cls.item() != 1 else ''} in this image."
-                template_responses.append(template)
-            
-            # Get start tokens (using the last token of the input as context)
-            start_tokens = text_input_ids[:, -1:].clone()
-            
-            # Skip generator and use the template responses directly
-            # This ensures we get meaningful outputs instead of placeholder dots
-            decoded_texts = template_responses
-            
-            # Create dummy token IDs (just for compatibility with the interface)
-            dummy_ids = []
-            for template in template_responses:
-                # Encode each template response
-                encoded = self.tokenizer.encode(template, add_special_tokens=True)
-                # Pad or truncate to max_length
-                if len(encoded) > max_length:
-                    encoded = encoded[:max_length]
-                else:
-                    encoded += [self.tokenizer.pad_token_id] * (max_length - len(encoded))
-                dummy_ids.append(encoded)
-            
-            # Convert to tensor
-            generated_ids = torch.tensor(dummy_ids, device=start_tokens.device, dtype=torch.long)
-            
-            # Return the generated IDs and template responses
-            return generated_ids, decoded_texts
-            
+        try:
+            with torch.no_grad():  # Use no_grad for inference
+                outputs = self.forward(
+                    pixel_values=pixel_values, 
+                    text_input_ids=text_input_ids, 
+                    attention_mask=attention_mask
+                )
+                
+                # Get multimodal context for generation
+                multimodal_context = outputs["multimodal_embeddings"]
+                
+                # Prepare a simple prompt template for each class
+                batch_size = text_input_ids.shape[0]
+                
+                # Get class predictions
+                _, predicted_classes = outputs["logits"].max(1)
+                
+                # Create fixed response templates based on the predicted class
+                template_responses = []
+                for cls in predicted_classes:
+                    if cls == 0:
+                        template = "Yes, this appears to be a tax document from the Australian Taxation Office."
+                    else:
+                        # For receipt classes (1+), indicate number of receipts
+                        template = f"I can see {cls.item()} receipt{'s' if cls.item() != 1 else ''} in this image."
+                    template_responses.append(template)
+                
+                # Get start tokens (using the last token of the input as context)
+                start_tokens = text_input_ids[:, -1:].clone()
+                
+                # Skip generator and use the template responses directly
+                # This ensures we get meaningful outputs instead of placeholder dots
+                decoded_texts = template_responses
+                
+                # Create dummy token IDs (just for compatibility with the interface)
+                dummy_ids = []
+                for template in template_responses:
+                    # Encode each template response
+                    encoded = self.tokenizer.encode(template, add_special_tokens=True)
+                    # Pad or truncate to max_length
+                    if len(encoded) > max_length:
+                        encoded = encoded[:max_length]
+                    else:
+                        encoded += [self.tokenizer.pad_token_id] * (max_length - len(encoded))
+                    dummy_ids.append(encoded)
+                
+                # Convert to tensor
+                generated_ids = torch.tensor(dummy_ids, device=start_tokens.device, dtype=torch.long)
+                
+                # Return the generated IDs and template responses
+                return generated_ids, decoded_texts
+                
         except Exception as e:
             # Fallback if generation fails completely
             self.logger.warning(f"Error in text generation: {e}")
-            return torch.zeros((batch_size, 2), dtype=torch.long, device=text_input_ids.device), template_responses
+            batch_size = text_input_ids.shape[0]
+            return torch.zeros((batch_size, 2), dtype=torch.long, device=text_input_ids.device), ["Error in text generation"] * batch_size
     
     def prepare_inputs(
         self, 
