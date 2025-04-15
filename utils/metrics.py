@@ -5,7 +5,7 @@ Includes metrics for:
 - Classification (accuracy, precision, recall, F1)
 - Natural language generation (BLEU, ROUGE, perplexity)
 """
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Union
 
 import numpy as np
 import torch
@@ -16,7 +16,7 @@ NLTK_AVAILABLE = False
 
 # Import NLG metrics if available
 try:
-    from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+    from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
     from rouge import Rouge
     NLTK_AVAILABLE = True
 except ImportError:
@@ -85,7 +85,7 @@ def compute_nlg_metrics(
         try:
             import nltk
             nltk.download('punkt', quiet=True)
-            from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+            from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
             from rouge import Rouge
             NLTK_AVAILABLE = True
         except ImportError:
@@ -96,8 +96,17 @@ def compute_nlg_metrics(
     
     # BLEU score calculation
     if NLTK_AVAILABLE:
-        # Initialize smoothing function
-        smooth = SmoothingFunction().method1
+        try:
+            # Explicitly import SmoothingFunction if it wasn't imported earlier
+            if 'SmoothingFunction' not in locals():
+                from nltk.translate.bleu_score import SmoothingFunction
+            # Initialize smoothing function
+            smooth = SmoothingFunction().method1
+        except (ImportError, NameError):
+            # Fallback if SmoothingFunction can't be accessed
+            return {"bleu": 0.0, "bleu1": 0.0, "bleu2": 0.0, "bleu3": 0.0, "bleu4": 0.0,
+                   "rouge1_f": 0.0, "rouge2_f": 0.0, "rougeL_f": 0.0,
+                   "error": "NLTK SmoothingFunction not available."}
         
         # Calculate BLEU scores for different n-gram orders
         bleu_scores = []
@@ -118,7 +127,7 @@ def compute_nlg_metrics(
             count = 0
             
             # Calculate BLEU for each example
-            for pred_tokens, ref_tokens in zip(tokenized_predictions, tokenized_references):
+            for pred_tokens, ref_tokens in zip(tokenized_predictions, tokenized_references, strict=False):
                 if len(pred_tokens) > 0 and len(ref_tokens) > 0:
                     try:
                         # Calculate BLEU with smoothing
@@ -144,11 +153,11 @@ def compute_nlg_metrics(
         try:
             rouge = Rouge()
             # Filter out empty predictions/references
-            valid_pairs = [(p, r) for p, r in zip(predictions, references) 
+            valid_pairs = [(p, r) for p, r in zip(predictions, references, strict=False) 
                            if len(p) > 0 and len(r) > 0]
             
             if valid_pairs:
-                valid_preds, valid_refs = zip(*valid_pairs)
+                valid_preds, valid_refs = zip(*valid_pairs, strict=False)
                 rouge_scores = rouge.get_scores(valid_preds, valid_refs, avg=True)
                 
                 # Extract and store ROUGE scores
