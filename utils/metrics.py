@@ -149,28 +149,11 @@ def compute_nlg_metrics(
         # Also include BLEU-4 as the default BLEU metric
         metrics["bleu"] = metrics.get("bleu4", 0.0)
         
-        # ROUGE scores
-        try:
-            rouge = Rouge()
-            # Filter out empty predictions/references
-            valid_pairs = [(p, r) for p, r in zip(predictions, references, strict=False) 
-                           if len(p) > 0 and len(r) > 0]
-            
-            if valid_pairs:
-                valid_preds, valid_refs = zip(*valid_pairs, strict=False)
-                rouge_scores = rouge.get_scores(valid_preds, valid_refs, avg=True)
-                
-                # Extract and store ROUGE scores
-                metrics["rouge1_f"] = rouge_scores["rouge-1"]["f"] * 100
-                metrics["rouge2_f"] = rouge_scores["rouge-2"]["f"] * 100
-                metrics["rougeL_f"] = rouge_scores["rouge-l"]["f"] * 100
-            else:
-                # No valid pairs
-                metrics["rouge1_f"] = 0.0
-                metrics["rouge2_f"] = 0.0
-                metrics["rougeL_f"] = 0.0
-        except Exception as e:
-            metrics["rouge_error"] = str(e)
+        # Skip ROUGE scores - they can be added back later if needed
+        metrics["rouge1_f"] = 0.0
+        metrics["rouge2_f"] = 0.0
+        metrics["rougeL_f"] = 0.0
+        metrics["rouge_status"] = "Disabled for compatibility"
     
     return metrics
 
