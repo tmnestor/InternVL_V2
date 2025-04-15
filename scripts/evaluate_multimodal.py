@@ -122,9 +122,10 @@ def evaluate_model(model: InternVL2MultimodalModel, dataloaders: Dict, output_di
                     all_class_targets.extend(batch["classification_labels"].cpu().tolist())
                 
                 # Text generation (for a subset to save time)
-                if batch_idx % 5 == 0:
+                if batch_idx % 2 == 0:  # Increase frequency of evaluation
                     # Generate responses
                     try:
+                        logger.info(f"Generating responses for batch {batch_idx}")
                         generated_ids, decoded_texts = model.generate_response(
                             pixel_values=batch["pixel_values"],
                             text_input_ids=batch["text_input_ids"],
@@ -139,24 +140,31 @@ def evaluate_model(model: InternVL2MultimodalModel, dataloaders: Dict, output_di
                             for i in range(len(decoded_texts))
                         ]
                         
+                        # Log raw generation results
+                        logger.info(f"Generated {len(decoded_texts)} responses")
+                        for i in range(min(2, len(decoded_texts))):
+                            logger.info(f"Sample {i}: Q: {tokenizer.decode(batch['text_input_ids'][i], skip_special_tokens=True)}")
+                            logger.info(f"         P: {decoded_texts[i]}")
+                            logger.info(f"         R: {reference_texts[i]}")
+                        
                         # Add to collection
                         all_generated_texts.extend(decoded_texts)
                         all_reference_texts.extend(reference_texts)
                         
-                        # Save some examples for inspection
-                        if len(all_predictions) < 10:
-                            for i in range(min(3, len(decoded_texts))):
-                                all_predictions.append({
-                                    "image_idx": batch_idx * dataloader.batch_size + i,
-                                    "question": tokenizer.decode(
-                                        batch["text_input_ids"][i], skip_special_tokens=True
-                                    ),
-                                    "prediction": decoded_texts[i],
-                                    "reference": reference_texts[i],
-                                    "receipt_count": batch["receipt_count"][i].item()
-                                })
+                        # Save all examples for inspection
+                        for i in range(len(decoded_texts)):
+                            all_predictions.append({
+                                "image_idx": batch_idx * dataloader.batch_size + i,
+                                "question": tokenizer.decode(
+                                    batch["text_input_ids"][i], skip_special_tokens=True
+                                ),
+                                "prediction": decoded_texts[i],
+                                "reference": reference_texts[i],
+                                "receipt_count": batch["receipt_count"][i].item() if "receipt_count" in batch else "N/A"
+                            })
                     except Exception as e:
                         logger.warning(f"Error during text generation: {e}")
+                        logger.warning(f"Exception details: {type(e).__name__}: {str(e)}")
     
     # Compute classification metrics
     if all_class_predictions and all_class_targets:
@@ -172,8 +180,19 @@ def evaluate_model(model: InternVL2MultimodalModel, dataloaders: Dict, output_di
         )
         logger.info(f"Generation metrics: {metrics['generation']}")
     
+    # Print some examples for debugging
+    logger.info("Example predictions vs references:")
+    for i, pred in enumerate(all_predictions[:5]):
+        logger.info(f"Example {i+1}:")
+        logger.info(f"  Question: {pred.get('question', 'N/A')}")
+        logger.info(f"  Prediction: {pred.get('prediction', 'N/A')}")
+        logger.info(f"  Reference: {pred.get('reference', 'N/A')}")
+        logger.info(f"  Receipt count: {pred.get('receipt_count', 'N/A')}")
+        logger.info("---")
+    
     # Save metrics and examples
     metrics_path = output_dir / "metrics.json"
+    os.makedirs(output_dir, exist_ok=True)
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=2)
     
