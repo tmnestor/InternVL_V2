@@ -54,6 +54,7 @@ def train_epoch(
     """
     model.train()
     total_loss = 0
+    logger = logging.getLogger(__name__)
     
     # Use weighted cross entropy with label smoothing if class weights are provided
     label_smoothing = 0.1  # Add label smoothing to prevent overconfidence
@@ -67,8 +68,6 @@ def train_epoch(
     else:
         criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
         logger.info(f"Using CrossEntropyLoss with label_smoothing={label_smoothing}")
-        
-    logger = logging.getLogger(__name__)
     
     # Detailed logging for first batch of first epoch
     first_batch_detailed = (epoch == 1)
