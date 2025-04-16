@@ -342,6 +342,9 @@ def main():
         }
     
     # Get model configuration
+    # Import needed modules (moved here to avoid UnboundLocalError)
+    import os
+    
     model_config = config.get("model", {})
     use_custom_path = model_config.get("use_custom_path", True)
     custom_path = model_config.get("custom_path", "/home/jovyan/nfs_share/models/huggingface/hub/ModernBERT-base")
@@ -512,7 +515,6 @@ def main():
     # Force recreate datasets to ensure we have the latest version
     logger.info("DATA CHECK: Forcing recreation of datasets to ensure balanced data")
     # Delete existing dataset files
-    import os
     for split in ["train", "val", "test"]:
         dataset_path = os.path.join(args.data_dir, f"question_dataset_{split}.json")
         if os.path.exists(dataset_path):
