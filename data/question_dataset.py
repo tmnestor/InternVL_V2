@@ -65,24 +65,54 @@ class QuestionDataset(Dataset):
         logger = logging.getLogger(__name__)
         custom_path = "/home/jovyan/nfs_share/models/huggingface/hub/ModernBERT-base"
         
-        # Try to initialize tokenizer
+        # Try to initialize tokenizer with detailed logging
         try:
             # First check if we should use the custom path
             if os.path.exists(custom_path) and (tokenizer_name == "ModernBert-base" or tokenizer_name == custom_path):
-                logger.info(f"Loading tokenizer from custom path: {custom_path}")
+                logger.info(f"TOKENIZER CHECK: Loading tokenizer from custom path: {custom_path}")
+                
+                # Verify path and contents
+                if os.path.exists(custom_path):
+                    logger.info(f"TOKENIZER CHECK: Path exists. Contents: {os.listdir(custom_path)}")
+                    
+                    # Check for tokenizer files
+                    tokenizer_files = [f for f in os.listdir(custom_path) if "tokenizer" in f.lower()]
+                    if tokenizer_files:
+                        logger.info(f"TOKENIZER CHECK: Found tokenizer files: {tokenizer_files}")
+                    else:
+                        logger.warning("TOKENIZER CHECK: No tokenizer files found")
+                    
+                    # Check for vocab files
+                    vocab_files = [f for f in os.listdir(custom_path) if "vocab" in f.lower()]
+                    if vocab_files:
+                        logger.info(f"TOKENIZER CHECK: Found vocab files: {vocab_files}")
+                    else:
+                        logger.warning("TOKENIZER CHECK: No vocab files found")
+                else:
+                    logger.warning(f"TOKENIZER CHECK: Path does not exist: {custom_path}")
+                
+                # Attempt to load tokenizer
+                logger.info("TOKENIZER CHECK: Calling AutoTokenizer.from_pretrained with local_files_only=True")
                 self.tokenizer = AutoTokenizer.from_pretrained(
                     custom_path,
                     local_files_only=True,
                     trust_remote_code=True
                 )
+                logger.info(f"TOKENIZER CHECK: Successfully loaded tokenizer. Type: {type(self.tokenizer).__name__}")
+                logger.info(f"TOKENIZER CHECK: Vocab size: {len(self.tokenizer.get_vocab())}")
+                logger.info(f"TOKENIZER CHECK: Sample token IDs for 'hello': {self.tokenizer.encode('hello')}")
             else:
                 # Use the provided tokenizer name
-                logger.info(f"Loading tokenizer from provided name: {tokenizer_name}")
+                logger.info(f"TOKENIZER CHECK: Loading tokenizer from provided name: {tokenizer_name}")
                 self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+                logger.info(f"TOKENIZER CHECK: Successfully loaded tokenizer from hub. Type: {type(self.tokenizer).__name__}")
         except Exception as e:
-            logger.warning(f"Error loading tokenizer: {e}")
-            logger.info("Falling back to default tokenizer")
+            logger.warning(f"TOKENIZER CHECK: Error loading tokenizer: {e}")
+            logger.warning(f"TOKENIZER CHECK: Exception type: {type(e).__name__}")
+            logger.warning(f"TOKENIZER CHECK: Exception details: {str(e)}")
+            logger.info("TOKENIZER CHECK: Falling back to default tokenizer distilbert-base-uncased")
             self.tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
+            logger.info(f"TOKENIZER CHECK: Fallback tokenizer loaded. Type: {type(self.tokenizer).__name__}")
         
         # Define question type mapping
         self.question_types = {

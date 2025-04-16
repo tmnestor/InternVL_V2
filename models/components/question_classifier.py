@@ -61,19 +61,43 @@ class QuestionClassifier(nn.Module):
         try:
             if use_custom_path:
                 # Load from local path with appropriate settings
+                logger.info(f"LOADING CHECK: Attempting to load ModernBert from path: {model_path}")
+                # Check if directory exists and list content
+                if os.path.exists(model_path):
+                    logger.info(f"LOADING CHECK: Path exists. Contents: {os.listdir(model_path)}")
+                    if os.path.exists(os.path.join(model_path, "config.json")):
+                        logger.info(f"LOADING CHECK: Found config.json in {model_path}")
+                        with open(os.path.join(model_path, "config.json"), "r") as f:
+                            config_content = f.read()
+                            logger.info(f"LOADING CHECK: Config file first 100 chars: {config_content[:100]}...")
+                    else:
+                        logger.warning(f"LOADING CHECK: No config.json found in {model_path}")
+                else:
+                    logger.warning(f"LOADING CHECK: Path does not exist: {model_path}")
+                
+                # Attempt to load with verbose logging
+                logger.info("LOADING CHECK: Calling AutoModel.from_pretrained with local_files_only=True")
                 self.encoder = AutoModel.from_pretrained(
                     model_path,
                     local_files_only=True,
                     trust_remote_code=True
                 )
-                logger.info("Successfully loaded model from custom path")
+                # Check encoder type
+                logger.info(f"LOADING CHECK: Successfully loaded model. Type: {type(self.encoder).__name__}")
+                logger.info(f"LOADING CHECK: Model config: {self.encoder.config.__class__.__name__}")
+                logger.info(f"LOADING CHECK: Model hidden size: {self.encoder.config.hidden_size}")
             else:
                 # Regular loading
+                logger.info(f"LOADING CHECK: Loading model from HuggingFace Hub: {model_name}")
                 self.encoder = AutoModel.from_pretrained(model_name)
+                logger.info(f"LOADING CHECK: Successfully loaded model from hub. Type: {type(self.encoder).__name__}")
         except Exception as e:
-            logger.warning(f"Error loading encoder model: {e}")
-            logger.info("Falling back to default model")
+            logger.warning(f"LOADING CHECK: Error loading encoder model: {e}")
+            logger.warning(f"LOADING CHECK: Exception type: {type(e).__name__}")
+            logger.warning(f"LOADING CHECK: Full traceback: {e.__traceback__}")
+            logger.info("LOADING CHECK: Falling back to default model distilbert-base-uncased")
             self.encoder = AutoModel.from_pretrained("distilbert-base-uncased")
+            logger.info(f"LOADING CHECK: Fallback model loaded. Type: {type(self.encoder).__name__}")
         
         # Classification head
         self.classifier = nn.Sequential(

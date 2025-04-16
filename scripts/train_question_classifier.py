@@ -11,6 +11,7 @@ import sys
 import yaml
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -36,7 +37,7 @@ def train_epoch(
     epoch: int
 ) -> float:
     """
-    Train for one epoch.
+    Train for one epoch with enhanced logging and diagnostics.
     
     Args:
         model: Model to train
@@ -51,32 +52,99 @@ def train_epoch(
     model.train()
     total_loss = 0
     criterion = nn.CrossEntropyLoss()
+    logger = logging.getLogger(__name__)
     
+    # Detailed logging for first batch of first epoch
+    first_batch_detailed = (epoch == 1)
+    
+    # Track accuracy during training
+    correct = 0
+    total = 0
+    
+    # Create progress bar
     progress_bar = tqdm(dataloader, desc=f"Epoch {epoch}")
-    for batch in progress_bar:
+    for batch_idx, batch in enumerate(progress_bar):
         # Get inputs
         input_ids = batch["input_ids"].to(device)
         attention_mask = batch["attention_mask"].to(device)
         labels = batch["label"].to(device)
+        
+        # Detailed logging for first batch
+        if first_batch_detailed and batch_idx == 0:
+            logger.info(f"TRAIN BATCH CHECK: Input IDs shape: {input_ids.shape}")
+            logger.info(f"TRAIN BATCH CHECK: Attention mask shape: {attention_mask.shape}")
+            logger.info(f"TRAIN BATCH CHECK: Labels: {labels}")
+            
+            # Check for data issues
+            if len(set(labels.cpu().numpy())) < 2:
+                logger.warning("TRAIN BATCH CHECK: Batch contains only one class label. This may cause training issues.")
         
         # Zero gradients
         optimizer.zero_grad()
         
         # Forward pass
         logits = model(input_ids, attention_mask)
+        
+        # Detailed logits logging for first batch
+        if first_batch_detailed and batch_idx == 0:
+            logger.info(f"TRAIN BATCH CHECK: Logits shape: {logits.shape}")
+            logger.info(f"TRAIN BATCH CHECK: Logits sample: {logits[0]}")
+            logger.info(f"TRAIN BATCH CHECK: Logits min/max: {logits.min().item():.4f}/{logits.max().item():.4f}")
+        
+        # Calculate loss
         loss = criterion(logits, labels)
         
         # Backward pass
         loss.backward()
         
+        # Check gradients
+        if first_batch_detailed and batch_idx == 0:
+            total_grad_norm = 0
+            for name, param in model.named_parameters():
+                if param.requires_grad and param.grad is not None:
+                    param_norm = param.grad.data.norm(2).item()
+                    total_grad_norm += param_norm ** 2
+                    
+                    if name == "encoder.encoder.layer.0.attention.self.query.weight" or \
+                       name == "classifier.0.weight":
+                        logger.info(f"GRAD CHECK: {name} grad norm = {param_norm:.6f}")
+            
+            total_grad_norm = total_grad_norm ** 0.5
+            logger.info(f"GRAD CHECK: Total grad norm = {total_grad_norm:.6f}")
+            
+            # Warn about exploding/vanishing gradients
+            if total_grad_norm > 10.0:
+                logger.warning(f"GRAD CHECK: Gradient norm is high ({total_grad_norm:.2f}). Consider gradient clipping.")
+            elif total_grad_norm < 0.01:
+                logger.warning(f"GRAD CHECK: Gradient norm is very low ({total_grad_norm:.6f}). Learning may be slow.")
+        
+        # Apply gradient clipping
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        
         # Update weights
         optimizer.step()
         
+        # Calculate accuracy
+        _, preds = torch.max(logits, 1)
+        correct += (preds == labels).sum().item()
+        total += labels.size(0)
+        
         # Update progress
         total_loss += loss.item()
-        progress_bar.set_postfix({"loss": loss.item()})
+        batch_acc = (preds == labels).float().mean().item() * 100
+        progress_bar.set_postfix({
+            "loss": f"{loss.item():.4f}", 
+            "batch_acc": f"{batch_acc:.1f}%"
+        })
     
-    return total_loss / len(dataloader)
+    # Calculate final metrics
+    avg_loss = total_loss / len(dataloader)
+    epoch_acc = 100 * correct / total if total > 0 else 0
+    
+    # Log epoch results
+    logger.info(f"TRAIN EPOCH {epoch}: Average loss = {avg_loss:.4f}, Accuracy = {epoch_acc:.2f}%")
+    
+    return avg_loss
 
 
 def evaluate(
@@ -85,7 +153,7 @@ def evaluate(
     device: torch.device
 ) -> dict:
     """
-    Evaluate model.
+    Evaluate model with detailed diagnostics.
     
     Args:
         model: Model to evaluate
@@ -99,14 +167,21 @@ def evaluate(
     total_loss = 0
     all_preds = []
     all_labels = []
+    all_questions = []
+    all_question_types = []
     criterion = nn.CrossEntropyLoss()
+    logger = logging.getLogger(__name__)
     
     with torch.no_grad():
-        for batch in tqdm(dataloader, desc="Evaluating"):
+        for batch_idx, batch in enumerate(tqdm(dataloader, desc="Evaluating")):
             # Get inputs
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["label"].to(device)
+            
+            # Save questions and types for analysis
+            all_questions.extend(batch["question"])
+            all_question_types.extend(batch["question_type"])
             
             # Forward pass
             logits = model(input_ids, attention_mask)
@@ -119,13 +194,56 @@ def evaluate(
             total_loss += loss.item()
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
+            
+            # Log first batch details for debugging
+            if batch_idx == 0:
+                logger.info(f"EVAL BATCH CHECK: Input IDs shape: {input_ids.shape}")
+                logger.info(f"EVAL BATCH CHECK: Attention mask shape: {attention_mask.shape}")
+                logger.info(f"EVAL BATCH CHECK: Labels: {labels}")
+                logger.info(f"EVAL BATCH CHECK: Predictions: {preds}")
+                logger.info(f"EVAL BATCH CHECK: Logits samples: {logits[:2]}")
     
     # Calculate accuracy
-    accuracy = sum(p == l for p, l in zip(all_preds, all_labels, strict=False)) / len(all_preds)
+    all_labels_np = np.array(all_labels)
+    all_preds_np = np.array(all_preds)
+    accuracy = (all_preds_np == all_labels_np).mean()
+    
+    # Calculate per-class metrics
+    classes = sorted(set(all_labels))
+    per_class_acc = {}
+    for c in classes:
+        class_mask = (all_labels_np == c)
+        if class_mask.sum() > 0:
+            class_acc = (all_preds_np[class_mask] == c).mean()
+            per_class_acc[c] = class_acc
+    
+    # Log confusion matrix statistics
+    class_counts = {}
+    for label, pred in zip(all_labels, all_preds):
+        key = f"{label}->{pred}"
+        class_counts[key] = class_counts.get(key, 0) + 1
+    
+    # Log success and error examples
+    success_examples = []
+    error_examples = []
+    for i, (label, pred, question, qtype) in enumerate(zip(all_labels, all_preds, all_questions, all_question_types)):
+        if label == pred:
+            if len(success_examples) < 3:  # Limit to 3 examples
+                success_examples.append((question, qtype, label))
+        else:
+            if len(error_examples) < 3:  # Limit to 3 examples
+                error_examples.append((question, qtype, label, pred))
+    
+    # Log detailed evaluation statistics
+    logger.info(f"EVAL CHECK: Accuracy by class: {per_class_acc}")
+    logger.info(f"EVAL CHECK: Class transition counts: {class_counts}")
+    logger.info(f"EVAL CHECK: Success examples: {success_examples}")
+    logger.info(f"EVAL CHECK: Error examples: {error_examples}")
     
     return {
         "loss": total_loss / len(dataloader),
-        "accuracy": accuracy
+        "accuracy": accuracy,
+        "per_class_accuracy": per_class_acc
     }
 
 
@@ -191,16 +309,45 @@ def main():
     use_custom_path = model_config.get("use_custom_path", True)
     custom_path = model_config.get("custom_path", "/home/jovyan/nfs_share/models/huggingface/hub/ModernBERT-base")
     
-    # Check if custom path should be used and exists
+    # Check if custom path should be used and exists with detailed diagnostics
     if use_custom_path:
+        logger.info(f"CONFIG CHECK: Using custom path option from config: {use_custom_path}")
+        logger.info(f"CONFIG CHECK: Custom path from config: {custom_path}")
+        
         if os.path.exists(custom_path):
-            logger.info(f"Using ModernBert from custom path: {custom_path}")
+            logger.info(f"PATH CHECK: Custom path exists: {custom_path}")
+            # List contents for debugging
+            contents = os.listdir(custom_path)
+            logger.info(f"PATH CHECK: Directory contents: {contents}")
+            
+            # Verify if it has the expected HuggingFace model files
+            logger.info("PATH CHECK: Checking for essential model files:")
+            expected_files = ["config.json", "pytorch_model.bin", "tokenizer.json", "tokenizer_config.json"]
+            for file in expected_files:
+                file_path = os.path.join(custom_path, file)
+                if os.path.exists(file_path):
+                    logger.info(f"PATH CHECK: Found {file}")
+                    # For config.json, print a snippet
+                    if file == "config.json":
+                        try:
+                            with open(file_path, 'r') as f:
+                                content = f.read()
+                                logger.info(f"PATH CHECK: config.json snippet: {content[:200]}...")
+                        except Exception as e:
+                            logger.warning(f"PATH CHECK: Error reading config.json: {e}")
+                else:
+                    logger.warning(f"PATH CHECK: Missing expected file: {file}")
+            
             # Register the model path with HuggingFace
             cache_dir = os.path.dirname(custom_path)
             os.environ["TRANSFORMERS_CACHE"] = cache_dir
-            logger.info(f"Set TRANSFORMERS_CACHE to {cache_dir}")
+            logger.info(f"ENV CHECK: Set TRANSFORMERS_CACHE to {cache_dir}")
+            logger.info(f"ENV CHECK: All environment variables: {[f'{k}={v}' for k, v in os.environ.items() if 'TRANSFORM' in k or 'HF_' in k]}")
         else:
-            logger.warning(f"Custom path not found: {custom_path}. Will try to use from HuggingFace Hub.")
+            logger.warning(f"PATH CHECK: Custom path does not exist: {custom_path}")
+            logger.warning(f"PATH CHECK: Current working directory: {os.getcwd()}")
+            logger.warning(f"PATH CHECK: Parent directory exists? {os.path.exists(os.path.dirname(custom_path))}")
+            logger.warning(f"PATH CHECK: Will try to use from HuggingFace Hub.")
     
     # Create dataloaders with appropriate tokenizer path
     tokenizer_path = custom_path if use_custom_path else args.model_name
@@ -280,10 +427,40 @@ def main():
         gamma=0.1
     )
     
-    # Train model
+    # Check model before training
+    logger.info("MODEL CHECK: Examining model before training")
+    logger.info(f"MODEL CHECK: Model type: {type(model).__name__}")
+    logger.info(f"MODEL CHECK: Encoder type: {type(model.encoder).__name__}")
+    logger.info(f"MODEL CHECK: Number of parameters: {sum(p.numel() for p in model.parameters())}")
+    logger.info(f"MODEL CHECK: Number of trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
+    
+    # Check data loaders
+    logger.info("DATA CHECK: Examining dataloaders before training")
+    for split, loader in dataloaders.items():
+        logger.info(f"DATA CHECK: {split} - Number of batches: {len(loader)}")
+        logger.info(f"DATA CHECK: {split} - Batch size: {loader.batch_size}")
+        logger.info(f"DATA CHECK: {split} - Dataset size: {len(loader.dataset)}")
+        
+        # Check first batch
+        try:
+            sample_batch = next(iter(loader))
+            logger.info(f"DATA CHECK: {split} - Sample batch keys: {list(sample_batch.keys())}")
+            logger.info(f"DATA CHECK: {split} - Sample input_ids shape: {sample_batch['input_ids'].shape}")
+            logger.info(f"DATA CHECK: {split} - Sample labels: {sample_batch['label']}")
+            logger.info(f"DATA CHECK: {split} - Sample questions: {sample_batch['question'][:2]}")  # Show first 2 questions
+            logger.info(f"DATA CHECK: {split} - Sample question types: {sample_batch['question_type'][:2]}")
+        except Exception as e:
+            logger.warning(f"DATA CHECK: Error examining sample batch: {e}")
+    
+    # Train model with enhanced logging
     logger.info("Starting training...")
     best_val_acc = 0
+    prev_train_loss = float('inf')
+    prev_val_loss = float('inf')
+    
     for epoch in range(1, args.num_epochs + 1):
+        logger.info(f"EPOCH {epoch}: Beginning training")
+        
         # Train for one epoch
         train_loss = train_epoch(
             model=model,
@@ -293,12 +470,29 @@ def main():
             epoch=epoch
         )
         
+        # Check for learning progress
+        loss_change = prev_train_loss - train_loss
+        logger.info(f"TRAINING CHECK: Loss change from previous epoch: {loss_change:.6f}")
+        if abs(loss_change) < 0.0001:
+            logger.warning("TRAINING CHECK: Training loss barely changing. Model may not be learning effectively.")
+        prev_train_loss = train_loss
+        
         # Evaluate on validation set
+        logger.info(f"EPOCH {epoch}: Evaluating on validation set")
         val_metrics = evaluate(
             model=model,
             dataloader=dataloaders["val"],
             device=device
         )
+        
+        # Check validation progress
+        val_loss_change = prev_val_loss - val_metrics['loss']
+        logger.info(f"VALIDATION CHECK: Loss change from previous epoch: {val_loss_change:.6f}")
+        if val_metrics['accuracy'] <= 0.2:
+            logger.warning("VALIDATION CHECK: Accuracy at or below random guessing level (0.2 for 5 classes)")
+        elif val_metrics['accuracy'] <= 0.25:
+            logger.warning("VALIDATION CHECK: Accuracy slightly above random guessing, model may be struggling")
+        prev_val_loss = val_metrics['loss']
         
         # Update scheduler
         scheduler.step()
