@@ -14,6 +14,7 @@
 !*.txt
 !*.yml
 !*.yaml
+!*.sh
 
 # Ignore specific markdown files
 CLAUDE.md
