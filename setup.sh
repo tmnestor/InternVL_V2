@@ -4,7 +4,7 @@
 # Usage: source setup.sh [working_directory] [conda_env_name]
 
 # Default values
-DEFAULT_DIR="$HOME/nfs_share/tod/internvl-receipt-counter"
+DEFAULT_DIR="$HOME/nfs_share/tod/InternVL_V2"
 DEFAULT_ENV="internvl_env"
 
 # Parse arguments
