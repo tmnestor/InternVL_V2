@@ -16,7 +16,6 @@ from collections import Counter
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from termcolor import colored
 from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
 from tqdm import tqdm
 from transformers import AutoTokenizer
@@ -269,10 +268,9 @@ def test_question_classifier(
             predictions.append(pred_id)
             true_labels.append(expected_id)
             
-            # Print result with color
-            color = "green" if is_correct else "red"
+            # Print result with success indicator
             status = "✓" if is_correct else "✗"
-            print(f"{question_text[:47] + '...' if len(question_text) > 50 else question_text:<50} {pred_type:<15} {expected_type:<15} {colored(status, color):<10}")
+            print(f"{question_text[:47] + '...' if len(question_text) > 50 else question_text:<50} {pred_type:<15} {expected_type:<15} {status:<10}")
     
     print("="*100)
     
