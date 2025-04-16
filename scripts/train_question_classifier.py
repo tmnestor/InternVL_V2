@@ -10,6 +10,7 @@ import os
 import sys
 import yaml
 from pathlib import Path
+from typing import Dict, List, Optional, Union, Tuple
 
 import numpy as np
 import torch
@@ -165,8 +166,9 @@ def train_epoch(
 def evaluate(
     model: nn.Module,
     dataloader: DataLoader,
-    device: torch.device
-) -> dict:
+    device: torch.device,
+    class_weights: Optional[torch.Tensor] = None
+) -> Dict[str, Union[float, Dict]]:
     """
     Evaluate model with detailed diagnostics.
     
@@ -174,6 +176,7 @@ def evaluate(
         model: Model to evaluate
         dataloader: Evaluation dataloader
         device: Device to evaluate on
+        class_weights: Optional tensor of weights for each class for evaluation metrics
         
     Returns:
         Dictionary with evaluation metrics
@@ -184,8 +187,17 @@ def evaluate(
     all_labels = []
     all_questions = []
     all_question_types = []
-    criterion = nn.CrossEntropyLoss()
     logger = logging.getLogger(__name__)
+    
+    # Use the same loss function as in training for consistency
+    label_smoothing = 0.1
+    if class_weights is not None:
+        criterion = nn.CrossEntropyLoss(
+            weight=class_weights.to(device),
+            label_smoothing=label_smoothing
+        )
+    else:
+        criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
     
     with torch.no_grad():
         for batch_idx, batch in enumerate(tqdm(dataloader, desc="Evaluating")):
@@ -542,7 +554,8 @@ def main():
         val_metrics = evaluate(
             model=model,
             dataloader=dataloaders["val"],
-            device=device
+            device=device,
+            class_weights=class_weights
         )
         
         # Check validation progress
@@ -581,7 +594,8 @@ def main():
     test_metrics = evaluate(
         model=model,
         dataloader=dataloaders["test"],
-        device=device
+        device=device,
+        class_weights=class_weights
     )
     
     logger.info(
