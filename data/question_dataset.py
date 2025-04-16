@@ -191,7 +191,7 @@ class QuestionDataset(Dataset):
             {"question": "What is the quantity of receipts in this image?", "type": "COUNTING"},
             {"question": "How many individual receipts can you find?", "type": "COUNTING"},
             
-            # Detail extraction questions - 20 examples
+            # Detail extraction questions - 40+ examples (doubled with more variation)
             {"question": "What store is this receipt from?", "type": "DETAIL_EXTRACTION"},
             {"question": "What is the date on this receipt?", "type": "DETAIL_EXTRACTION"},
             {"question": "What items were purchased?", "type": "DETAIL_EXTRACTION"},
@@ -212,6 +212,40 @@ class QuestionDataset(Dataset):
             {"question": "Tell me what was purchased.", "type": "DETAIL_EXTRACTION"},
             {"question": "What does the receipt say was bought?", "type": "DETAIL_EXTRACTION"},
             {"question": "What merchant issued this receipt?", "type": "DETAIL_EXTRACTION"},
+            
+            # Additional detail extraction examples - focus on specific receipt details
+            {"question": "What's the GST amount on this receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What's the subtotal before tax?", "type": "DETAIL_EXTRACTION"},
+            {"question": "How much tax was charged?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What's the ABN listed on the receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What's the receipt number?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What's the transaction ID on this receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What's the cashier's name on the receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What register number was used?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What's the store's address on the receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What's the store's phone number?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What time was the purchase made?", "type": "DETAIL_EXTRACTION"},
+            {"question": "How many items were purchased?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What's the price of the first item?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What discount was applied?", "type": "DETAIL_EXTRACTION"},
+            {"question": "Was there a loyalty discount applied?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What department was this purchased from?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What brand is shown on the receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What's the quantity of each item purchased?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What was the most expensive item purchased?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What's the store's website listed on the receipt?", "type": "DETAIL_EXTRACTION"},
+            
+            # Additional receipt information variations
+            {"question": "Extract the total amount from this receipt.", "type": "DETAIL_EXTRACTION"},
+            {"question": "What are the line items on this receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "List all products purchased according to the receipt.", "type": "DETAIL_EXTRACTION"},
+            {"question": "What are the individual prices of items on this receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "Tell me the date and time of this transaction.", "type": "DETAIL_EXTRACTION"},
+            {"question": "What's the business name that issued this receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What are the quantities of each item purchased?", "type": "DETAIL_EXTRACTION"},
+            {"question": "Read the receipt and tell me what was bought.", "type": "DETAIL_EXTRACTION"},
+            {"question": "Read the receipt and tell me when it was issued.", "type": "DETAIL_EXTRACTION"},
+            {"question": "What is the exact purchase time on this receipt?", "type": "DETAIL_EXTRACTION"},
             
             # Payment information questions - 20 examples
             {"question": "How was this purchase paid for?", "type": "PAYMENT_INFO"},
@@ -280,6 +314,16 @@ class QuestionDataset(Dataset):
             {"question": "Could you read what items were purchased?", "type": "DETAIL_EXTRACTION"},
             {"question": "I'd like to know what products are listed here.", "type": "DETAIL_EXTRACTION"},
             {"question": "Can you find the store name on this receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "I'm trying to figure out what was purchased on this receipt.", "type": "DETAIL_EXTRACTION"},
+            {"question": "Could you tell me what items this person bought?", "type": "DETAIL_EXTRACTION"},
+            {"question": "I'd like to know the name of the store on this receipt.", "type": "DETAIL_EXTRACTION"},
+            {"question": "Would you mind telling me the date on this receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "Can you extract the total amount from this receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "Please identify what items were purchased.", "type": "DETAIL_EXTRACTION"},
+            {"question": "I'm interested in the purchase date on this receipt.", "type": "DETAIL_EXTRACTION"},
+            {"question": "Do me a favor and tell me what store this receipt is from.", "type": "DETAIL_EXTRACTION"},
+            {"question": "I'd really appreciate if you could tell me the transaction amount.", "type": "DETAIL_EXTRACTION"},
+            {"question": "I need you to extract the purchase details from this receipt.", "type": "DETAIL_EXTRACTION"},
             
             # Payment info variations
             {"question": "I need to confirm how this was paid for.", "type": "PAYMENT_INFO"},
@@ -307,6 +351,38 @@ class QuestionDataset(Dataset):
             {"question": "Briefly explain how this purchase was paid for based on the receipt.", "type": "PAYMENT_INFO"},
             {"question": "Precisely identify which tax year this ATO document pertains to.", "type": "TAX_INFO"},
         ]
+        
+        # Add additional complex DETAIL_EXTRACTION questions
+        complex_detail_questions = [
+            {"question": "Meticulously extract all purchase information from this receipt.", "type": "DETAIL_EXTRACTION"},
+            {"question": "Carefully identify the store name and total amount on this receipt.", "type": "DETAIL_EXTRACTION"},
+            {"question": "Thoroughly analyze this receipt and tell me when it was issued.", "type": "DETAIL_EXTRACTION"},
+            {"question": "Precisely determine what items were purchased based on the receipt.", "type": "DETAIL_EXTRACTION"},
+            {"question": "Rapidly identify the transaction date from this receipt.", "type": "DETAIL_EXTRACTION"},
+            {"question": "In detail, list all the items shown on this receipt.", "type": "DETAIL_EXTRACTION"},
+            {"question": "Completely examine this receipt and tell me the store's name.", "type": "DETAIL_EXTRACTION"},
+            {"question": "Given this receipt, identify exactly what time the purchase occurred.", "type": "DETAIL_EXTRACTION"},
+            {"question": "Analyze this receipt and extract the subtotal amount.", "type": "DETAIL_EXTRACTION"},
+            {"question": "From this receipt, determine precisely how many items were purchased.", "type": "DETAIL_EXTRACTION"},
+        ]
+        
+        # Add questions with challenging syntax and Australian context for DETAIL_EXTRACTION
+        australian_detail_questions = [
+            {"question": "What's the GST component on this receipt, mate?", "type": "DETAIL_EXTRACTION"},
+            {"question": "Which items in the docket have the highest price?", "type": "DETAIL_EXTRACTION"},
+            {"question": "Does this receipt show any specials or markdowns?", "type": "DETAIL_EXTRACTION"},
+            {"question": "Can you tell me if there's a loyalty number on this receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What's the ABN listed on this till receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "Does the receipt show what aisle these items were from?", "type": "DETAIL_EXTRACTION"},
+            {"question": "Is there any mention of reward points on this receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What's the total including the GST on this docket?", "type": "DETAIL_EXTRACTION"},
+            {"question": "Tell me what department store issued this receipt.", "type": "DETAIL_EXTRACTION"},
+            {"question": "What was the price of groceries on this receipt?", "type": "DETAIL_EXTRACTION"},
+        ]
+        
+        # Add all detail questions to the collection
+        complex_questions.extend(complex_detail_questions)
+        complex_questions.extend(australian_detail_questions)
         
         questions.extend(complex_questions)
         

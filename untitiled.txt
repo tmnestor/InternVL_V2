@@ -1,0 +1,22 @@
+To complete the full implementation of the classification improvement
+  plan, the user should:
+
+  1. Run the full training script with more epochs:
+  PYTHONPATH=.
+  /opt/homebrew/Caskroom/miniforge/base/envs/internvl_env/bin/python
+  scripts/train_enhanced_classifier.py --num-epochs 15 --batch-size 16
+
+  2. Adjust class weights further to address the PAYMENT_INFO
+  classification issue
+  PYTHONPATH=.
+  /opt/homebrew/Caskroom/miniforge/base/envs/internvl_env/bin/python
+  scripts/train_enhanced_classifier.py --num-epochs 15 --weight-strategy
+  manual --focal-gamma 2.5
+
+  3. After training completes, run the comprehensive test script:
+  PYTHONPATH=.
+  /opt/homebrew/Caskroom/miniforge/base/envs/internvl_env/bin/python
+  scripts/test_enhanced_classifier.py
+
+  4. Review the detailed test results and metrics to further refine the
+  model.
