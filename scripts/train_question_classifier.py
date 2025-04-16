@@ -34,8 +34,9 @@ def train_epoch(
     model: nn.Module,
     dataloader: DataLoader,
     optimizer: optim.Optimizer,
-    device: torch.device,
-    epoch: int,
+    scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
+    device: torch.device = None,
+    epoch: int = 0,
     class_weights: Optional[torch.Tensor] = None
 ) -> float:
     """
@@ -45,6 +46,7 @@ def train_epoch(
         model: Model to train
         dataloader: Training dataloader
         optimizer: Optimizer
+        scheduler: Learning rate scheduler to step after each batch
         device: Device to train on
         epoch: Current epoch number
         class_weights: Optional tensor of weights for each class to address class imbalance
@@ -139,6 +141,14 @@ def train_epoch(
         # Update weights
         optimizer.step()
         
+        # Step the learning rate scheduler if provided
+        if scheduler is not None:
+            scheduler.step()
+            # Log the learning rate occasionally
+            if batch_idx % 10 == 0:
+                current_lr = scheduler.get_last_lr()[0]
+                logger.debug(f"Current learning rate: {current_lr:.8f}")
+        
         # Calculate accuracy
         _, preds = torch.max(logits, 1)
         correct += (preds == labels).sum().item()
@@ -149,7 +159,8 @@ def train_epoch(
         batch_acc = (preds == labels).float().mean().item() * 100
         progress_bar.set_postfix({
             "loss": f"{loss.item():.4f}", 
-            "batch_acc": f"{batch_acc:.1f}%"
+            "batch_acc": f"{batch_acc:.1f}%",
+            "lr": f"{optimizer.param_groups[0]['lr']:.8f}"
         })
     
     # Calculate final metrics
@@ -283,7 +294,7 @@ def main():
                       help="Output directory for model checkpoints")
     parser.add_argument("--data-dir", type=str, default="data/question_data",
                       help="Directory for question datasets")
-    parser.add_argument("--model-name", type=str, default="ModernBert-base",
+    parser.add_argument("--model-name", type=str, default="distilbert-base-uncased",
                       help="Base model for question classifier")
     parser.add_argument("--batch-size", type=int, default=16,
                       help="Training batch size")
@@ -446,12 +457,21 @@ def main():
         weight_decay=0.01
     )
     
-    # Create scheduler
-    scheduler = optim.lr_scheduler.StepLR(
+    # Create a more adaptive scheduler
+    # Use cosine annealing with warmup for smoother learning rate changes
+    from transformers import get_cosine_schedule_with_warmup
+    
+    # Calculate total training steps
+    num_training_steps = len(dataloaders["train"]) * args.num_epochs
+    num_warmup_steps = int(0.1 * num_training_steps)  # 10% of total steps
+    
+    scheduler = get_cosine_schedule_with_warmup(
         optimizer,
-        step_size=2,
-        gamma=0.1
+        num_warmup_steps=num_warmup_steps,
+        num_training_steps=num_training_steps
     )
+    
+    logger.info(f"Using cosine schedule with warmup: {num_warmup_steps} warmup steps, {num_training_steps} total steps")
     
     # Check model before training
     logger.info("MODEL CHECK: Examining model before training")
@@ -489,6 +509,26 @@ def main():
         except Exception as e:
             logger.warning(f"DATA CHECK: Error examining sample batch: {e}")
     
+    # Force recreate datasets to ensure we have the latest version
+    logger.info("DATA CHECK: Forcing recreation of datasets to ensure balanced data")
+    # Delete existing dataset files
+    import os
+    for split in ["train", "val", "test"]:
+        dataset_path = os.path.join(args.data_dir, f"question_dataset_{split}.json")
+        if os.path.exists(dataset_path):
+            os.remove(dataset_path)
+            logger.info(f"Removed existing dataset: {dataset_path}")
+    
+    # Reload dataloaders to force dataset regeneration
+    dataloaders = create_question_dataloaders(
+        data_dir=args.data_dir,
+        batch_size=batch_size,
+        tokenizer_name=tokenizer_path,
+        max_length=max_length,
+        num_workers=0,
+        use_custom_path=use_custom_path
+    )
+    
     # Get full statistics from the training dataset
     if "train" in dataloaders:
         class_counts = {}
@@ -502,25 +542,33 @@ def main():
         
         # Calculate inverse frequency class weights
         if class_counts:
-            num_classes = max(class_counts.keys()) + 1
-            # Initialize weights for all possible classes
-            class_weights = torch.ones(num_classes)
+            # Ensure we have 5 classes (0-4)
+            num_classes = 5  # Explicitly set to 5 since we know there are 5 classes
             
-            # Calculate inverse frequency weight for each class
+            # Initialize weights with high values for missing classes
+            class_weights = torch.ones(num_classes) * 2.0  # Default weight for missing classes
+            
+            # Calculate inverse frequency weight for each class that exists in the data
             for label, count in class_counts.items():
-                # Use inverse frequency with smoothing to avoid extreme weights
-                class_weights[label] = total_samples / (count * num_classes)
+                if label < num_classes:  # Ensure the label is valid
+                    # Use inverse frequency with smoothing
+                    class_weights[label] = total_samples / (count * num_classes + 1e-6)
+            
+            # Cap weights to avoid extreme values
+            class_weights = torch.clamp(class_weights, min=0.5, max=5.0)
             
             # Normalize weights to have mean of 1
             class_weights = class_weights * (num_classes / class_weights.sum())
             
             logger.info(f"DATA CHECK: Using class weights: {class_weights}")
         else:
-            class_weights = None
-            logger.warning("DATA CHECK: Could not calculate class weights. Using uniform weighting.")
+            # Create weights that emphasize underrepresented classes
+            class_weights = torch.tensor([1.5, 1.5, 0.5, 1.5, 1.5])
+            logger.warning(f"DATA CHECK: Could not calculate class weights from data. Using manual weights: {class_weights}")
     else:
-        class_weights = None
-        logger.warning("DATA CHECK: Training dataloader not found. Using uniform weighting.")
+        # Create weights that emphasize underrepresented classes
+        class_weights = torch.tensor([1.5, 1.5, 0.5, 1.5, 1.5])
+        logger.warning(f"DATA CHECK: Training dataloader not found. Using manual weights: {class_weights}")
     
     # Train model with enhanced logging
     logger.info("Starting training...")
@@ -531,11 +579,12 @@ def main():
     for epoch in range(1, args.num_epochs + 1):
         logger.info(f"EPOCH {epoch}: Beginning training")
         
-        # Train for one epoch with class weights
+        # Train for one epoch with class weights and scheduler
         train_loss = train_epoch(
             model=model,
             dataloader=dataloaders["train"],
             optimizer=optimizer,
+            scheduler=scheduler,
             device=device,
             epoch=epoch,
             class_weights=class_weights
@@ -566,8 +615,8 @@ def main():
             logger.warning("VALIDATION CHECK: Accuracy slightly above random guessing, model may be struggling")
         prev_val_loss = val_metrics['loss']
         
-        # Update scheduler
-        scheduler.step()
+        # For the newer scheduler, step() is called every batch instead of every epoch
+        # so we've already updated it during training
         
         # Log metrics
         logger.info(
