@@ -631,6 +631,33 @@ class InternVL2MultimodalModel(nn.Module):
             activation="gelu"
         )
         
+        # Import and initialize components for enhanced multimodal capabilities
+        try:
+            # Initialize question classifier
+            from models.components.question_classifier import QuestionClassifier
+            self.question_classifier = QuestionClassifier(
+                model_name="distilbert-base-uncased",
+                hidden_size=768,
+                num_classes=5
+            )
+            self.logger.info("Initialized question classifier")
+            
+            # Initialize template selector
+            from models.components.template_system import TemplateSelector
+            self.template_selector = TemplateSelector()
+            self.logger.info("Initialized template selector")
+            
+            # Initialize detail extractor
+            from models.components.detail_extractor import DetailExtractor
+            self.detail_extractor = DetailExtractor(
+                input_dim=vision_hidden_size,
+                hidden_dim=512
+            )
+            self.logger.info("Initialized detail extractor")
+            
+        except Exception as e:
+            self.logger.warning(f"Could not initialize enhanced components: {e}. Will use basic template system.")
+        
         # Freeze vision encoder if required
         if freeze_vision_encoder:
             self.logger.info("Freezing vision encoder")
@@ -747,11 +774,38 @@ class InternVL2MultimodalModel(nn.Module):
                 pooled_vision = image_embeds.mean(dim=1)
                 classification_logits = self.classification_head(pooled_vision)
                 
+                # Get question type if question classifier exists
+                question_type_logits = None
+                if hasattr(self, 'question_classifier') and self.training:
+                    # Get question text
+                    # We only do this during training as we need ground truth labels
+                    # During inference, we handle this in generate_response
+                    question_inputs = self.tokenizer.batch_decode(
+                        text_input_ids, skip_special_tokens=True
+                    )
+                    # Pass through classifier (batched)
+                    question_inputs = self.tokenizer(
+                        question_inputs, 
+                        padding="max_length",
+                        truncation=True,
+                        max_length=128,
+                        return_tensors="pt"
+                    ).to(text_input_ids.device)
+                    question_type_logits = self.question_classifier(
+                        question_inputs.input_ids,
+                        question_inputs.attention_mask
+                    )
+                
+                # Extract document details if detail extractor exists
+                detail_logits = None
+                if hasattr(self, 'detail_extractor') and self.training:
+                    detail_logits, _ = self.detail_extractor(image_embeds)
+                
                 # Clear image_embeds as soon as possible to free memory
                 del image_embeds
                 
-                # Only include necessary outputs to reduce memory usage
-                return {
+                # Prepare outputs with enhanced components
+                outputs = {
                     "logits": classification_logits,
                     "embeddings": pooled_vision,
                     "multimodal_embeddings": multimodal_embeds,
@@ -759,6 +813,15 @@ class InternVL2MultimodalModel(nn.Module):
                     # Only include features if not in training mode to save memory
                     "response_features": response_output["features"] if not self.training else None
                 }
+                
+                # Add outputs from enhanced components if available
+                if question_type_logits is not None:
+                    outputs["question_type_logits"] = question_type_logits
+                    
+                if detail_logits is not None:
+                    outputs["detail_logits"] = detail_logits
+                    
+                return outputs
             else:
                 # Regular vision-only path for backward compatibility
                 pooled_output = image_embeds.mean(dim=1)
@@ -804,6 +867,17 @@ class InternVL2MultimodalModel(nn.Module):
         # Run forward pass to get multimodal embeddings
         try:
             with torch.no_grad():  # Use no_grad for inference
+                # Get question text
+                question = self.tokenizer.decode(text_input_ids[0], skip_special_tokens=True)
+                
+                # Classify question type if question classifier exists
+                if hasattr(self, 'question_classifier'):
+                    question_type = self.question_classifier.predict_question_type(question)
+                else:
+                    # Default to document type if no classifier
+                    question_type = "DOCUMENT_TYPE"
+                
+                # Generate embeddings and get document class
                 outputs = self.forward(
                     pixel_values=pixel_values, 
                     text_input_ids=text_input_ids, 
@@ -813,34 +887,46 @@ class InternVL2MultimodalModel(nn.Module):
                 # Get multimodal context for generation
                 multimodal_context = outputs["multimodal_embeddings"]
                 
-                # Prepare a simple prompt template for each class
-                batch_size = text_input_ids.shape[0]
-                
                 # Get class predictions
-                _, predicted_classes = outputs["logits"].max(1)
+                _, predicted_class = outputs["logits"].max(1)
                 
-                # Create fixed response templates based on the predicted class
-                template_responses = []
-                for cls in predicted_classes:
-                    if cls == 0:
-                        template = "Yes, this appears to be a tax document from the Australian Taxation Office."
-                    else:
-                        # For receipt classes (1+), indicate number of receipts
-                        template = f"I can see {cls.item()} receipt{'s' if cls.item() != 1 else ''} in this image."
-                    template_responses.append(template)
+                # Extract document details if detail extractor exists
+                extracted_details = {}
+                if hasattr(self, 'detail_extractor') and question_type in [
+                    "DETAIL_EXTRACTION", "PAYMENT_INFO", "AMOUNT", "TAX_INFO"
+                ]:
+                    extracted_details = self.detail_extractor.extract_details(
+                        pixel_values, question_type
+                    )
                 
-                # Get start tokens (using the last token of the input as context)
-                start_tokens = text_input_ids[:, -1:].clone()
+                # Select and fill template if template selector exists
+                if hasattr(self, 'template_selector'):
+                    # Use advanced template system
+                    responses = []
+                    for idx, cls in enumerate(predicted_class):
+                        response = self.template_selector.select_template(
+                            question_type,
+                            cls.item(),
+                            extracted_details
+                        )
+                        responses.append(response)
+                else:
+                    # Fallback to simple templates
+                    responses = []
+                    for cls in predicted_class:
+                        if cls == 0:
+                            template = "Yes, this appears to be a tax document from the Australian Taxation Office."
+                        else:
+                            # For receipt classes (1+), indicate number of receipts
+                            template = f"I can see {cls.item()} receipt{'s' if cls.item() != 1 else ''} in this image."
+                        responses.append(template)
                 
-                # Skip generator and use the template responses directly
-                # This ensures we get meaningful outputs instead of placeholder dots
-                decoded_texts = template_responses
-                
-                # Create dummy token IDs (just for compatibility with the interface)
+                # Create token IDs for responses
+                batch_size = text_input_ids.shape[0]
                 dummy_ids = []
-                for template in template_responses:
-                    # Encode each template response
-                    encoded = self.tokenizer.encode(template, add_special_tokens=True)
+                for response in responses:
+                    # Encode each response
+                    encoded = self.tokenizer.encode(response, add_special_tokens=True)
                     # Pad or truncate to max_length
                     if len(encoded) > max_length:
                         encoded = encoded[:max_length]
@@ -849,10 +935,10 @@ class InternVL2MultimodalModel(nn.Module):
                     dummy_ids.append(encoded)
                 
                 # Convert to tensor
-                generated_ids = torch.tensor(dummy_ids, device=start_tokens.device, dtype=torch.long)
+                generated_ids = torch.tensor(dummy_ids, device=text_input_ids.device, dtype=torch.long)
                 
-                # Return the generated IDs and template responses
-                return generated_ids, decoded_texts
+                # Return the generated IDs and responses
+                return generated_ids, responses
                 
         except Exception as e:
             # Fallback if generation fails completely
