@@ -7,10 +7,10 @@ and response generation components of the multimodal system.
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Union
+from typing import Dict, List, Union
 
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer
 
 
@@ -25,7 +25,7 @@ class QuestionDataset(Dataset):
     def __init__(
         self,
         data_dir: Union[str, Path],
-        tokenizer_name: str = "distilbert-base-uncased",
+        tokenizer_name: str = "ModernBert-base",
         max_length: int = 128,
         split: str = "train",
         create_default: bool = True,
@@ -186,7 +186,7 @@ class QuestionDataset(Dataset):
 def create_question_dataloaders(
     data_dir: Union[str, Path],
     batch_size: int = 16,
-    tokenizer_name: str = "distilbert-base-uncased",
+    tokenizer_name: str = "ModernBert-base",
     max_length: int = 128,
     num_workers: int = 0
 ) -> Dict[str, DataLoader]:

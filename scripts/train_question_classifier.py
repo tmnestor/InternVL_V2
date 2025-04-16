@@ -6,16 +6,14 @@ which is used to understand different types of questions about receipts and tax 
 """
 import argparse
 import logging
-import os
 import sys
 from pathlib import Path
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import yaml
-from tqdm import tqdm
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 # Add project root to path
 project_root = Path(__file__).resolve().parent.parent
@@ -120,7 +118,7 @@ def evaluate(
             all_labels.extend(labels.cpu().numpy())
     
     # Calculate accuracy
-    accuracy = sum(p == l for p, l in zip(all_preds, all_labels)) / len(all_preds)
+    accuracy = sum(p == l for p, l in zip(all_preds, all_labels, strict=False)) / len(all_preds)
     
     return {
         "loss": total_loss / len(dataloader),
@@ -138,7 +136,7 @@ def main():
                       help="Output directory for model checkpoints")
     parser.add_argument("--data-dir", type=str, default="data/question_data",
                       help="Directory for question datasets")
-    parser.add_argument("--model-name", type=str, default="distilbert-base-uncased",
+    parser.add_argument("--model-name", type=str, default="ModernBert-base",
                       help="Base model for question classifier")
     parser.add_argument("--batch-size", type=int, default=16,
                       help="Training batch size")

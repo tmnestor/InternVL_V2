@@ -19,7 +19,7 @@ class QuestionClassifier(nn.Module):
     
     def __init__(
         self, 
-        model_name: str = "distilbert-base-uncased",
+        model_name: str = "ModernBert-base",
         hidden_size: int = 768, 
         num_classes: int = 5,
         device: str = None
