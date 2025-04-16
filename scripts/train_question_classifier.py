@@ -6,7 +6,9 @@ which is used to understand different types of questions about receipts and tax 
 """
 import argparse
 import logging
+import os
 import sys
+import yaml
 from pathlib import Path
 
 import torch
@@ -14,6 +16,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 # Add project root to path
 project_root = Path(__file__).resolve().parent.parent
@@ -167,22 +170,101 @@ def main():
     device = get_device()
     logger.info(f"Using device: {device}")
     
-    # Create dataloaders
-    dataloaders = create_question_dataloaders(
-        data_dir=args.data_dir,
-        batch_size=args.batch_size,
-        tokenizer_name=args.model_name,
-        max_length=128,
-        num_workers=0
-    )
+    # Load configuration file
+    try:
+        with open(args.config, 'r') as f:
+            config = yaml.safe_load(f)
+        logger.info(f"Loaded configuration from {args.config}")
+    except Exception as e:
+        logger.warning(f"Error loading config file: {e}. Using default settings.")
+        config = {
+            "model": {
+                "name": args.model_name,
+                "custom_path": "/home/jovyan/nfs_share/models/huggingface/hub/ModernBERT-base",
+                "use_custom_path": True,
+                "hidden_size": 768
+            }
+        }
     
-    # Create model
-    model = QuestionClassifier(
-        model_name=args.model_name,
-        hidden_size=768,
-        num_classes=5,
-        device=device
-    )
+    # Get model configuration
+    model_config = config.get("model", {})
+    use_custom_path = model_config.get("use_custom_path", True)
+    custom_path = model_config.get("custom_path", "/home/jovyan/nfs_share/models/huggingface/hub/ModernBERT-base")
+    
+    # Check if custom path should be used and exists
+    if use_custom_path:
+        if os.path.exists(custom_path):
+            logger.info(f"Using ModernBert from custom path: {custom_path}")
+            # Register the model path with HuggingFace
+            cache_dir = os.path.dirname(custom_path)
+            os.environ["TRANSFORMERS_CACHE"] = cache_dir
+            logger.info(f"Set TRANSFORMERS_CACHE to {cache_dir}")
+        else:
+            logger.warning(f"Custom path not found: {custom_path}. Will try to use from HuggingFace Hub.")
+    
+    # Create dataloaders with appropriate tokenizer path
+    tokenizer_path = custom_path if use_custom_path else args.model_name
+    max_length = config.get("data", {}).get("max_length", 128)
+    batch_size = config.get("training", {}).get("batch_size", args.batch_size)
+    
+    try:
+        # Try to load the tokenizer from the configured path
+        if use_custom_path:
+            tokenizer = AutoTokenizer.from_pretrained(
+                tokenizer_path,
+                local_files_only=True,
+                trust_remote_code=True
+            )
+            logger.info("Successfully loaded tokenizer from custom path")
+        else:
+            tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+            logger.info("Successfully loaded tokenizer from model name")
+        
+        dataloaders = create_question_dataloaders(
+            data_dir=args.data_dir,
+            batch_size=batch_size,
+            tokenizer_name=tokenizer_path,
+            max_length=max_length,
+            num_workers=0,
+            use_custom_path=use_custom_path
+        )
+    except Exception as e:
+        logger.warning(f"Error loading tokenizer: {e}")
+        logger.info("Falling back to default tokenizer")
+        dataloaders = create_question_dataloaders(
+            data_dir=args.data_dir,
+            batch_size=batch_size,
+            tokenizer_name="distilbert-base-uncased",
+            max_length=max_length,
+            num_workers=0,
+            use_custom_path=False  # Don't use custom path for fallback
+        )
+    
+    # Create model with appropriate configuration
+    model_name = tokenizer_path  # Use same path that worked for tokenizer
+    hidden_size = model_config.get("hidden_size", 768)
+    num_classes = model_config.get("num_classes", 5)
+    
+    try:
+        # Pass custom config to QuestionClassifier
+        model = QuestionClassifier(
+            model_name=model_name,
+            hidden_size=hidden_size,
+            num_classes=num_classes,
+            device=device,
+            use_custom_path=use_custom_path
+        )
+        logger.info(f"Successfully loaded model from {model_name}")
+    except Exception as e:
+        logger.warning(f"Error loading model: {e}")
+        logger.info("Falling back to default model")
+        model = QuestionClassifier(
+            model_name="distilbert-base-uncased",
+            hidden_size=hidden_size,
+            num_classes=num_classes,
+            device=device,
+            use_custom_path=False
+        )
     
     # Create optimizer
     optimizer = optim.AdamW(

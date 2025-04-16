@@ -3,6 +3,8 @@
 # Model configuration
 model:
   name: "ModernBert-base"
+  custom_path: "/home/jovyan/nfs_share/models/huggingface/hub/ModernBERT-base"
+  use_custom_path: true
   hidden_size: 768
   num_classes: 5
   dropout_rate: 0.1

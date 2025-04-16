@@ -6,6 +6,7 @@ and response generation components of the multimodal system.
 """
 import json
 import os
+import logging
 from pathlib import Path
 from typing import Dict, List, Union
 
@@ -60,8 +61,28 @@ class QuestionDataset(Dataset):
         else:
             raise FileNotFoundError(f"Dataset file not found: {self.file_path}")
         
-        # Initialize tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        # Check for custom ModernBert path
+        logger = logging.getLogger(__name__)
+        custom_path = "/home/jovyan/nfs_share/models/huggingface/hub/ModernBERT-base"
+        
+        # Try to initialize tokenizer
+        try:
+            # First check if we should use the custom path
+            if os.path.exists(custom_path) and (tokenizer_name == "ModernBert-base" or tokenizer_name == custom_path):
+                logger.info(f"Loading tokenizer from custom path: {custom_path}")
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    custom_path,
+                    local_files_only=True,
+                    trust_remote_code=True
+                )
+            else:
+                # Use the provided tokenizer name
+                logger.info(f"Loading tokenizer from provided name: {tokenizer_name}")
+                self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        except Exception as e:
+            logger.warning(f"Error loading tokenizer: {e}")
+            logger.info("Falling back to default tokenizer")
+            self.tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
         
         # Define question type mapping
         self.question_types = {
@@ -188,7 +209,8 @@ def create_question_dataloaders(
     batch_size: int = 16,
     tokenizer_name: str = "ModernBert-base",
     max_length: int = 128,
-    num_workers: int = 0
+    num_workers: int = 0,
+    use_custom_path: bool = True
 ) -> Dict[str, DataLoader]:
     """
     Create dataloaders for question classification training.
@@ -199,10 +221,13 @@ def create_question_dataloaders(
         tokenizer_name: Name of tokenizer to use
         max_length: Maximum sequence length
         num_workers: Number of workers for dataloaders
-        
-    Returns:
-        Dictionary of dataloaders for train, val, test splits
+        use_custom_path: Whether to set the cache environment variable
     """
+    # Set the transformers cache if requested and path exists
+    custom_cache_dir = "/home/jovyan/nfs_share/models/huggingface/hub"
+    if use_custom_path and not os.environ.get("TRANSFORMERS_CACHE") and os.path.exists(custom_cache_dir):
+        os.environ["TRANSFORMERS_CACHE"] = custom_cache_dir
+        logging.info(f"Set TRANSFORMERS_CACHE to {custom_cache_dir}")
     # Create datasets
     train_dataset = QuestionDataset(
         data_dir=data_dir,
