@@ -34,7 +34,8 @@ def train_epoch(
     dataloader: DataLoader,
     optimizer: optim.Optimizer,
     device: torch.device,
-    epoch: int
+    epoch: int,
+    class_weights: Optional[torch.Tensor] = None
 ) -> float:
     """
     Train for one epoch with enhanced logging and diagnostics.
@@ -45,13 +46,27 @@ def train_epoch(
         optimizer: Optimizer
         device: Device to train on
         epoch: Current epoch number
+        class_weights: Optional tensor of weights for each class to address class imbalance
         
     Returns:
         Average loss for the epoch
     """
     model.train()
     total_loss = 0
-    criterion = nn.CrossEntropyLoss()
+    
+    # Use weighted cross entropy with label smoothing if class weights are provided
+    label_smoothing = 0.1  # Add label smoothing to prevent overconfidence
+    
+    if class_weights is not None:
+        criterion = nn.CrossEntropyLoss(
+            weight=class_weights.to(device),
+            label_smoothing=label_smoothing
+        )
+        logger.info(f"Using weighted loss with class weights: {class_weights} and label_smoothing={label_smoothing}")
+    else:
+        criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+        logger.info(f"Using CrossEntropyLoss with label_smoothing={label_smoothing}")
+        
     logger = logging.getLogger(__name__)
     
     # Detailed logging for first batch of first epoch
@@ -261,9 +276,9 @@ def main():
                       help="Base model for question classifier")
     parser.add_argument("--batch-size", type=int, default=16,
                       help="Training batch size")
-    parser.add_argument("--num-epochs", type=int, default=5,
+    parser.add_argument("--num-epochs", type=int, default=10,
                       help="Number of training epochs")
-    parser.add_argument("--learning-rate", type=float, default=2e-5,
+    parser.add_argument("--learning-rate", type=float, default=5e-6,
                       help="Learning rate")
     parser.add_argument("--seed", type=int, default=42,
                       help="Random seed")
@@ -434,14 +449,19 @@ def main():
     logger.info(f"MODEL CHECK: Number of parameters: {sum(p.numel() for p in model.parameters())}")
     logger.info(f"MODEL CHECK: Number of trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
     
-    # Check data loaders
+    # Check data loaders and compute class weights for balanced loss
     logger.info("DATA CHECK: Examining dataloaders before training")
+    
+    # Initialize counters for class balancing
+    class_counts = {}
+    total_samples = 0
+    
     for split, loader in dataloaders.items():
         logger.info(f"DATA CHECK: {split} - Number of batches: {len(loader)}")
         logger.info(f"DATA CHECK: {split} - Batch size: {loader.batch_size}")
         logger.info(f"DATA CHECK: {split} - Dataset size: {len(loader.dataset)}")
         
-        # Check first batch
+        # Check first batch and collect class statistics for the training set
         try:
             sample_batch = next(iter(loader))
             logger.info(f"DATA CHECK: {split} - Sample batch keys: {list(sample_batch.keys())}")
@@ -449,8 +469,47 @@ def main():
             logger.info(f"DATA CHECK: {split} - Sample labels: {sample_batch['label']}")
             logger.info(f"DATA CHECK: {split} - Sample questions: {sample_batch['question'][:2]}")  # Show first 2 questions
             logger.info(f"DATA CHECK: {split} - Sample question types: {sample_batch['question_type'][:2]}")
+            
+            # Count class instances for training set
+            if split == "train":
+                for label in sample_batch['label'].cpu().numpy():
+                    class_counts[int(label)] = class_counts.get(int(label), 0) + 1
+                    total_samples += 1
         except Exception as e:
             logger.warning(f"DATA CHECK: Error examining sample batch: {e}")
+    
+    # Get full statistics from the training dataset
+    if "train" in dataloaders:
+        class_counts = {}
+        for batch in dataloaders["train"]:
+            for label in batch['label'].cpu().numpy():
+                label_int = int(label)
+                class_counts[label_int] = class_counts.get(label_int, 0) + 1
+        
+        total_samples = sum(class_counts.values())
+        logger.info(f"DATA CHECK: Class distribution in training set: {class_counts}")
+        
+        # Calculate inverse frequency class weights
+        if class_counts:
+            num_classes = max(class_counts.keys()) + 1
+            # Initialize weights for all possible classes
+            class_weights = torch.ones(num_classes)
+            
+            # Calculate inverse frequency weight for each class
+            for label, count in class_counts.items():
+                # Use inverse frequency with smoothing to avoid extreme weights
+                class_weights[label] = total_samples / (count * num_classes)
+            
+            # Normalize weights to have mean of 1
+            class_weights = class_weights * (num_classes / class_weights.sum())
+            
+            logger.info(f"DATA CHECK: Using class weights: {class_weights}")
+        else:
+            class_weights = None
+            logger.warning("DATA CHECK: Could not calculate class weights. Using uniform weighting.")
+    else:
+        class_weights = None
+        logger.warning("DATA CHECK: Training dataloader not found. Using uniform weighting.")
     
     # Train model with enhanced logging
     logger.info("Starting training...")
@@ -461,13 +520,14 @@ def main():
     for epoch in range(1, args.num_epochs + 1):
         logger.info(f"EPOCH {epoch}: Beginning training")
         
-        # Train for one epoch
+        # Train for one epoch with class weights
         train_loss = train_epoch(
             model=model,
             dataloader=dataloaders["train"],
             optimizer=optimizer,
             device=device,
-            epoch=epoch
+            epoch=epoch,
+            class_weights=class_weights
         )
         
         # Check for learning progress

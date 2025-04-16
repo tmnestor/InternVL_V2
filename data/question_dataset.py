@@ -140,48 +140,179 @@ class QuestionDataset(Dataset):
     
     def _create_default_dataset(self) -> List[Dict]:
         """
-        Create default question dataset.
+        Create expanded default question dataset with many more examples.
         
         Returns:
             List of question dictionaries
         """
-        # Basic set of questions for each type
+        # Much larger and more diverse set of questions for each type
         questions = [
-            # Document type questions
+            # Document type questions - 20 examples
             {"question": "Is this a receipt?", "type": "DOCUMENT_TYPE"},
             {"question": "What kind of document is this?", "type": "DOCUMENT_TYPE"},
             {"question": "Is this a tax document?", "type": "DOCUMENT_TYPE"},
             {"question": "What type of document am I looking at?", "type": "DOCUMENT_TYPE"},
             {"question": "Can you identify this document?", "type": "DOCUMENT_TYPE"},
+            {"question": "What document do I have here?", "type": "DOCUMENT_TYPE"},
+            {"question": "Is this a receipt or a tax document?", "type": "DOCUMENT_TYPE"},
+            {"question": "Tell me what kind of document this is.", "type": "DOCUMENT_TYPE"},
+            {"question": "What am I looking at in this image?", "type": "DOCUMENT_TYPE"},
+            {"question": "Is this a receipt from a store?", "type": "DOCUMENT_TYPE"},
+            {"question": "Does this look like a receipt to you?", "type": "DOCUMENT_TYPE"},
+            {"question": "Is this document from the ATO?", "type": "DOCUMENT_TYPE"},
+            {"question": "What would you call this type of document?", "type": "DOCUMENT_TYPE"},
+            {"question": "Is this an official document or a receipt?", "type": "DOCUMENT_TYPE"},
+            {"question": "What category of document is shown?", "type": "DOCUMENT_TYPE"},
+            {"question": "Can you tell if this is a receipt?", "type": "DOCUMENT_TYPE"},
+            {"question": "Would you classify this as a tax document?", "type": "DOCUMENT_TYPE"},
+            {"question": "Is this a receipt or something else?", "type": "DOCUMENT_TYPE"},
+            {"question": "What do you call this kind of document?", "type": "DOCUMENT_TYPE"},
+            {"question": "Can you identify whether this is a receipt?", "type": "DOCUMENT_TYPE"},
             
-            # Counting questions
+            # Counting questions - 20 examples
             {"question": "How many receipts are in this image?", "type": "COUNTING"},
             {"question": "Count the number of receipts.", "type": "COUNTING"},
             {"question": "Are there multiple receipts here?", "type": "COUNTING"},
             {"question": "How many receipts do you see?", "type": "COUNTING"},
             {"question": "Can you count the receipts in this image?", "type": "COUNTING"},
+            {"question": "Tell me how many receipts are shown.", "type": "COUNTING"},
+            {"question": "What's the count of receipts in this picture?", "type": "COUNTING"},
+            {"question": "Is there more than one receipt?", "type": "COUNTING"},
+            {"question": "How many separate receipts can you identify?", "type": "COUNTING"},
+            {"question": "Count the receipts for me please.", "type": "COUNTING"},
+            {"question": "Give me the number of receipts visible.", "type": "COUNTING"},
+            {"question": "Is there just one receipt or multiple?", "type": "COUNTING"},
+            {"question": "Can you enumerate the receipts shown?", "type": "COUNTING"},
+            {"question": "What's the total number of receipts?", "type": "COUNTING"},
+            {"question": "Tell me the receipt count in this image.", "type": "COUNTING"},
+            {"question": "How many distinct receipts are there?", "type": "COUNTING"},
+            {"question": "Count how many receipts are present.", "type": "COUNTING"},
+            {"question": "Are there two or more receipts shown?", "type": "COUNTING"},
+            {"question": "What is the quantity of receipts in this image?", "type": "COUNTING"},
+            {"question": "How many individual receipts can you find?", "type": "COUNTING"},
             
-            # Detail extraction questions
+            # Detail extraction questions - 20 examples
             {"question": "What store is this receipt from?", "type": "DETAIL_EXTRACTION"},
             {"question": "What is the date on this receipt?", "type": "DETAIL_EXTRACTION"},
             {"question": "What items were purchased?", "type": "DETAIL_EXTRACTION"},
             {"question": "When was this purchase made?", "type": "DETAIL_EXTRACTION"},
             {"question": "What store issued this receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What was bought according to this receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What time was this purchase made?", "type": "DETAIL_EXTRACTION"},
+            {"question": "Which products are listed on the receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What is the name of the store on the receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "Can you tell me the purchase date?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What items did they buy?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What's the store name on this receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "When was this transaction completed?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What products were purchased?", "type": "DETAIL_EXTRACTION"},
+            {"question": "Which retailer issued this receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What date is shown on the receipt?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What's the transaction date?", "type": "DETAIL_EXTRACTION"},
+            {"question": "Tell me what was purchased.", "type": "DETAIL_EXTRACTION"},
+            {"question": "What does the receipt say was bought?", "type": "DETAIL_EXTRACTION"},
+            {"question": "What merchant issued this receipt?", "type": "DETAIL_EXTRACTION"},
             
-            # Payment information questions
+            # Payment information questions - 20 examples
             {"question": "How was this purchase paid for?", "type": "PAYMENT_INFO"},
             {"question": "What payment method was used?", "type": "PAYMENT_INFO"},
             {"question": "Was this paid by credit card?", "type": "PAYMENT_INFO"},
             {"question": "What was the payment type?", "type": "PAYMENT_INFO"},
             {"question": "Did they pay with cash or card?", "type": "PAYMENT_INFO"},
+            {"question": "What form of payment was used?", "type": "PAYMENT_INFO"},
+            {"question": "How did the customer pay?", "type": "PAYMENT_INFO"},
+            {"question": "Was this paid in cash?", "type": "PAYMENT_INFO"},
+            {"question": "Which payment option was selected?", "type": "PAYMENT_INFO"},
+            {"question": "What payment card was used?", "type": "PAYMENT_INFO"},
+            {"question": "Was this purchase made with EFTPOS?", "type": "PAYMENT_INFO"},
+            {"question": "What payment details are shown?", "type": "PAYMENT_INFO"},
+            {"question": "Can you tell how they paid?", "type": "PAYMENT_INFO"},
+            {"question": "What does it say about the payment method?", "type": "PAYMENT_INFO"},
+            {"question": "Does it show how payment was made?", "type": "PAYMENT_INFO"},
+            {"question": "Tell me about the payment method used.", "type": "PAYMENT_INFO"},
+            {"question": "How was the transaction settled?", "type": "PAYMENT_INFO"},
+            {"question": "What payment information is on the receipt?", "type": "PAYMENT_INFO"},
+            {"question": "Did they use a debit card?", "type": "PAYMENT_INFO"},
+            {"question": "Can you identify the payment method?", "type": "PAYMENT_INFO"},
             
-            # Tax document questions
+            # Tax document questions - 20 examples
             {"question": "What tax form is this?", "type": "TAX_INFO"},
             {"question": "What is the ABN on this document?", "type": "TAX_INFO"},
             {"question": "What tax year does this document cover?", "type": "TAX_INFO"},
             {"question": "Is this an official ATO document?", "type": "TAX_INFO"},
             {"question": "What is the tax file number?", "type": "TAX_INFO"},
+            {"question": "Which financial year is this tax document for?", "type": "TAX_INFO"},
+            {"question": "Can you find the ABN listed?", "type": "TAX_INFO"},
+            {"question": "What's the TFN shown on this document?", "type": "TAX_INFO"},
+            {"question": "Is this from the Australian Tax Office?", "type": "TAX_INFO"},
+            {"question": "What kind of tax form am I looking at?", "type": "TAX_INFO"},
+            {"question": "What's the tax period for this document?", "type": "TAX_INFO"},
+            {"question": "Can you locate the Australian Business Number?", "type": "TAX_INFO"},
+            {"question": "What tax information is contained in this document?", "type": "TAX_INFO"},
+            {"question": "Is this a notice of assessment?", "type": "TAX_INFO"},
+            {"question": "What tax document has the ATO provided here?", "type": "TAX_INFO"},
+            {"question": "When was this tax document issued?", "type": "TAX_INFO"},
+            {"question": "What's the document ID on this tax form?", "type": "TAX_INFO"},
+            {"question": "Does this document show my tax refund amount?", "type": "TAX_INFO"},
+            {"question": "Is this a BAS statement?", "type": "TAX_INFO"},
+            {"question": "What's the ATO reference number on this document?", "type": "TAX_INFO"},
         ]
+        
+        # Add variations with different phrasing for each type to further increase diversity
+        phrase_variations = [
+            # Document type variations
+            {"question": "Please identify what kind of document this is.", "type": "DOCUMENT_TYPE"},
+            {"question": "Just tell me if this is a receipt or not.", "type": "DOCUMENT_TYPE"},
+            {"question": "I need to know what type of document I'm looking at.", "type": "DOCUMENT_TYPE"},
+            {"question": "Could you please identify this document type?", "type": "DOCUMENT_TYPE"},
+            {"question": "I'm wondering what kind of document this is.", "type": "DOCUMENT_TYPE"},
+            
+            # Counting variations
+            {"question": "I need to know how many receipts are in this image.", "type": "COUNTING"},
+            {"question": "Please tell me the number of receipts shown.", "type": "COUNTING"},
+            {"question": "Could you count these receipts for me?", "type": "COUNTING"},
+            {"question": "I'd like to know how many receipts are visible.", "type": "COUNTING"},
+            {"question": "Just tell me the receipt count please.", "type": "COUNTING"},
+            
+            # Detail extraction variations
+            {"question": "I need to know where this receipt is from.", "type": "DETAIL_EXTRACTION"},
+            {"question": "Please tell me what the date is on this receipt.", "type": "DETAIL_EXTRACTION"},
+            {"question": "Could you read what items were purchased?", "type": "DETAIL_EXTRACTION"},
+            {"question": "I'd like to know what products are listed here.", "type": "DETAIL_EXTRACTION"},
+            {"question": "Can you find the store name on this receipt?", "type": "DETAIL_EXTRACTION"},
+            
+            # Payment info variations
+            {"question": "I need to confirm how this was paid for.", "type": "PAYMENT_INFO"},
+            {"question": "Please check what payment method was used.", "type": "PAYMENT_INFO"},
+            {"question": "Could you tell me if this was paid with cash?", "type": "PAYMENT_INFO"},
+            {"question": "I'd like to know which payment type was used.", "type": "PAYMENT_INFO"},
+            {"question": "Can you find how the payment was processed?", "type": "PAYMENT_INFO"},
+            
+            # Tax info variations
+            {"question": "I need to check what tax form this is.", "type": "TAX_INFO"},
+            {"question": "Please find the ABN on this tax document.", "type": "TAX_INFO"},
+            {"question": "Could you tell me which tax year this covers?", "type": "TAX_INFO"},
+            {"question": "I'd like to know if this is an official ATO document.", "type": "TAX_INFO"},
+            {"question": "Can you find the tax file number on this?", "type": "TAX_INFO"},
+        ]
+        
+        # Add the variations to the main list
+        questions.extend(phrase_variations)
+        
+        # Add complex sentence structures and questions with adverbs
+        complex_questions = [
+            {"question": "Quickly identify whether this is a receipt or tax document.", "type": "DOCUMENT_TYPE"},
+            {"question": "Carefully count how many separate receipts appear in this image.", "type": "COUNTING"},
+            {"question": "Thoroughly examine this receipt and tell me what store it's from.", "type": "DETAIL_EXTRACTION"},
+            {"question": "Briefly explain how this purchase was paid for based on the receipt.", "type": "PAYMENT_INFO"},
+            {"question": "Precisely identify which tax year this ATO document pertains to.", "type": "TAX_INFO"},
+        ]
+        
+        questions.extend(complex_questions)
+        
+        # Shuffle the questions to avoid training bias
+        import random
+        random.shuffle(questions)
         
         return questions
     
