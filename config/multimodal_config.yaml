@@ -7,7 +7,7 @@ log_level: INFO
 
 # Model configuration
 model:
-  pretrained_path: "/Users/tod/PretrainedLLM/InternVL2_5-1B"  # Replace with actual path
+  pretrained_path: "$HOME/nfs_share/models/huggingface/hub/InternVL2_5-1B"  # Replace with actual path
   multimodal: true  # Enable multimodal mode
   num_classes: 3  # 0, 1, 2+ receipts for classification task
   use_8bit: false  # Disable 8-bit quantization for better accuracy
@@ -35,7 +35,7 @@ data:
 
 # Training configuration
 training:
-  epochs: 15
+  epochs: 20
   learning_rate: 2.0e-5
   weight_decay: 1.0e-4
   warmup_steps: 500

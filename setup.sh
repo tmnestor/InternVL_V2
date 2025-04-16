@@ -12,9 +12,9 @@ WORK_DIR=${1:-$DEFAULT_DIR}
 CONDA_ENV=${2:-$DEFAULT_ENV}
 
 # Print header
-echo "========================================"
-echo "🚀 Setting up environment for internvl-receipt-counter"
-echo "========================================"
+echo "========================================="
+echo "🚀 Setting up environment for InternVL_V2"
+echo "========================================="
 
 # Change to working directory
 if [ -d "$WORK_DIR" ]; then
