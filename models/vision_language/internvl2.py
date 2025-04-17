@@ -598,81 +598,80 @@ class InternVL2MultimodalModel(nn.Module):
             
             # If language model component was deleted, restore it
             self.logger.warning("Language model not found. Loading a new language model instance.")
-                        try:
-                            # Try to get a compatible language model from the hub
-                            # First detect the model type to determine which class to use
-                            if hasattr(self.model, "config") and hasattr(self.model.config, "model_type"):
-                                model_type = self.model.config.model_type
-                                self.logger.info(f"Detected model type from config: {model_type}")
-                                
-                                # For InternVL models, use their integrated language model component
-                                if model_type == "internvl_chat" or model_type == "internvl2_chat" or "internvl" in model_type.lower():
-                                    # InternVL already has a language model built in
-                                    self.logger.info(f"Using integrated language model from {model_type}")
-                                    
-                                    # Try to extract the language model component - check all common attribute names
-                                    if hasattr(self.model, "llm"):
-                                        self.language_model = self.model.llm
-                                        self.logger.info("Using model.llm as language model")
-                                    elif hasattr(self.model, "language_model"):
-                                        self.language_model = self.model.language_model
-                                        self.logger.info("Using model.language_model as language model")
-                                    elif hasattr(self.model, "text_model"):
-                                        self.language_model = self.model.text_model
-                                        self.logger.info("Using model.text_model as language model")
-                                    elif hasattr(self.model, "LLM"):
-                                        self.language_model = self.model.LLM
-                                        self.logger.info("Using model.LLM as language model")
-                                    elif hasattr(self.model, "llama"):
-                                        self.language_model = self.model.llama
-                                        self.logger.info("Using model.llama as language model")
-                                    else:
-                                        # If can't extract specific component, use the whole model
-                                        self.logger.warning("Could not find specific language model component. Using full model.")
-                                        self.language_model = self.model
-                                elif model_type in ["mpnet", "bert", "roberta", "electra"]:
-                                    # These are encoder-only models - not ideal for generation
-                                    self.logger.warning(f"Using encoder-only model {model_type} - limited generation capability")
-                                    self.language_model = AutoModel.from_pretrained(
-                                        pretrained_path,
-                                        trust_remote_code=True,
-                                        local_files_only=True
-                                    )
-                                    self.logger.info(f"Loaded {model_type} as language model with AutoModel")
-                                else:
-                                    # Default to causal LM
-                                    self.language_model = AutoModelForCausalLM.from_pretrained(
-                                        pretrained_path,
-                                        trust_remote_code=True,
-                                        local_files_only=True
-                                    )
-                                    self.logger.info(f"Loaded language model as AutoModelForCausalLM")
-                            else:
-                                # Try to extract language model component directly
-                                if hasattr(self.model, "llm"):
-                                    self.language_model = self.model.llm
-                                    self.logger.info("Using model.llm as language model")
-                                elif hasattr(self.model, "language_model"):
-                                    self.language_model = self.model.language_model
-                                    self.logger.info("Using model.language_model as language model")
-                                elif hasattr(self.model, "text_model"):
-                                    self.language_model = self.model.text_model
-                                    self.logger.info("Using model.text_model as language model") 
-                                else:
-                                    # No config type available, use AutoModel as fallback
-                                    self.language_model = AutoModel.from_pretrained(
-                                        pretrained_path,
-                                        trust_remote_code=True,
-                                        local_files_only=True
-                                    )
-                                    self.logger.info("Loaded language model as generic AutoModel")
-                                self.logger.info("Loaded language model as generic AutoModel")
-                        except Exception as e:
-                            self.logger.error(f"Error loading language model: {e}")
-                            raise ValueError(
-                                "Could not instantiate a language model. "
-                                "Please ensure the model has a language component."
-                            )
+            try:
+                # Try to get a compatible language model from the hub
+                # First detect the model type to determine which class to use
+                if hasattr(self.model, "config") and hasattr(self.model.config, "model_type"):
+                    model_type = self.model.config.model_type
+                    self.logger.info(f"Detected model type from config: {model_type}")
+                    
+                    # For InternVL models, use their integrated language model component
+                    if model_type == "internvl_chat" or model_type == "internvl2_chat" or "internvl" in model_type.lower():
+                        # InternVL already has a language model built in
+                        self.logger.info(f"Using integrated language model from {model_type}")
+                        
+                        # Try to extract the language model component - check all common attribute names
+                        if hasattr(self.model, "llm"):
+                            self.language_model = self.model.llm
+                            self.logger.info("Using model.llm as language model")
+                        elif hasattr(self.model, "language_model"):
+                            self.language_model = self.model.language_model
+                            self.logger.info("Using model.language_model as language model")
+                        elif hasattr(self.model, "text_model"):
+                            self.language_model = self.model.text_model
+                            self.logger.info("Using model.text_model as language model")
+                        elif hasattr(self.model, "LLM"):
+                            self.language_model = self.model.LLM
+                            self.logger.info("Using model.LLM as language model")
+                        elif hasattr(self.model, "llama"):
+                            self.language_model = self.model.llama
+                            self.logger.info("Using model.llama as language model")
+                        else:
+                            # If can't extract specific component, use the whole model
+                            self.logger.warning("Could not find specific language model component. Using full model.")
+                            self.language_model = self.model
+                    elif model_type in ["mpnet", "bert", "roberta", "electra"]:
+                        # These are encoder-only models - not ideal for generation
+                        self.logger.warning(f"Using encoder-only model {model_type} - limited generation capability")
+                        self.language_model = AutoModel.from_pretrained(
+                            pretrained_path,
+                            trust_remote_code=True,
+                            local_files_only=True
+                        )
+                        self.logger.info(f"Loaded {model_type} as language model with AutoModel")
+                    else:
+                        # Default to causal LM
+                        self.language_model = AutoModelForCausalLM.from_pretrained(
+                            pretrained_path,
+                            trust_remote_code=True,
+                            local_files_only=True
+                        )
+                        self.logger.info(f"Loaded language model as AutoModelForCausalLM")
+                else:
+                    # Try to extract language model component directly
+                    if hasattr(self.model, "llm"):
+                        self.language_model = self.model.llm
+                        self.logger.info("Using model.llm as language model")
+                    elif hasattr(self.model, "language_model"):
+                        self.language_model = self.model.language_model
+                        self.logger.info("Using model.language_model as language model")
+                    elif hasattr(self.model, "text_model"):
+                        self.language_model = self.model.text_model
+                        self.logger.info("Using model.text_model as language model") 
+                    else:
+                        # No config type available, use AutoModel as fallback
+                        self.language_model = AutoModel.from_pretrained(
+                            pretrained_path,
+                            trust_remote_code=True,
+                            local_files_only=True
+                        )
+                        self.logger.info("Loaded language model as generic AutoModel")
+            except Exception as e:
+                self.logger.error(f"Error loading language model: {e}")
+                raise ValueError(
+                    "Could not instantiate a language model. "
+                    "Please ensure the model has a language component."
+                )
         
         # Enable gradient checkpointing for model components to save memory
         try:
