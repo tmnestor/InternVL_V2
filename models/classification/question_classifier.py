@@ -247,7 +247,7 @@ class QuestionClassifier(nn.Module):
             # Extract embeddings based on output format - special handling for Qwen models
             if "Qwen" in encoder_type:
                 # Qwen models have a different output structure
-                logger.info("Detected Qwen model, using special output handling")
+                logger.debug("Detected Qwen model, using special output handling")
                 
                 if hasattr(outputs, 'hidden_states') and outputs.hidden_states is not None:
                     # Get the last hidden state from hidden_states
@@ -324,13 +324,13 @@ class QuestionClassifier(nn.Module):
                 if pooled_output.shape[-1] > expected_dim:
                     # Slice to reduce dimensions
                     pooled_output = pooled_output[:, :expected_dim]
-                    logger.info(f"Sliced pooled output to match classifier input dimension: {pooled_output.shape}")
+                    logger.debug(f"Sliced pooled output to match classifier input dimension: {pooled_output.shape}")
                 else:
                     # Pad with zeros to increase dimensions
                     padding = torch.zeros(pooled_output.shape[0], expected_dim - pooled_output.shape[-1], 
                                           device=pooled_output.device)
                     pooled_output = torch.cat([pooled_output, padding], dim=1)
-                    logger.info(f"Padded pooled output to match classifier input dimension: {pooled_output.shape}")
+                    logger.debug(f"Padded pooled output to match classifier input dimension: {pooled_output.shape}")
             
             # Pass through classifier head
             logits = self.classifier(pooled_output)

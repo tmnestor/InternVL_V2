@@ -1105,7 +1105,7 @@ class InternVL2MultimodalModel(nn.Module):
                             attention_mask
                         )
                         
-                        self.logger.info("Using shared InternVL2 tokenizer and language model components")
+                        self.logger.debug("Using shared InternVL2 tokenizer and language model components")
                 
                 # Extract document details if detail extractor exists
                 detail_logits = None
