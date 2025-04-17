@@ -27,7 +27,7 @@ from PIL import Image
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 # Import components to test
-from data.data_generators_new.create_multimodal_data import (
+from data.generators.create_multimodal_data import (
     create_synthetic_multimodal_data,
     generate_answer_templates,
     generate_qa_pair,
@@ -482,7 +482,7 @@ class TestMultimodalDatasetImplementation(unittest.TestCase):
         """Verify that the dataset distribution matches requirements."""
         # Create a synthetic dataset in memory for testing distributions
         # Mock create_receipt and create_blank_image so we don't actually generate images
-        from data.data_generators_new.receipt_generator import create_blank_image, create_receipt
+        from data.generators.receipt_generator import create_blank_image, create_receipt
         
         # Save original functions
         original_create_receipt = create_receipt

@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
-from models.internvl2 import InternVL2ReceiptClassifier
+from models.vision_language.internvl2 import InternVL2ReceiptClassifier
 from sklearn.metrics import (
     accuracy_score,
     balanced_accuracy_score,

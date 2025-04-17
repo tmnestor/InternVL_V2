@@ -51,6 +51,14 @@ def setup_logger(
         file_handler = logging.FileHandler(log_file)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
+    else:
+        # Create a default log file in the archive location
+        log_dir = Path("archive/logging/logs")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        file_handler = logging.FileHandler(log_dir / "training.log")
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
     
     return logger
 
@@ -59,13 +67,16 @@ class TensorboardLogger:
     """
     Wrapper for TensorBoard logging functionality.
     """
-    def __init__(self, log_dir: Union[str, Path]):
+    def __init__(self, log_dir: Union[str, Path] = None):
         """
         Initialize TensorBoard logger.
         
         Args:
-            log_dir: Directory to save TensorBoard logs
+            log_dir: Directory to save TensorBoard logs. If None, uses archive/logging/logs/tensorboard
         """
+        if log_dir is None:
+            log_dir = Path("archive/logging/logs/tensorboard")
+        
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         

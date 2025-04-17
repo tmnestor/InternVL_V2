@@ -18,7 +18,7 @@ from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from models.internvl2 import InternVL2MultimodalModel
+from models.vision_language.internvl2 import InternVL2MultimodalModel
 from training.multimodal_loss import MultimodalLoss
 from utils.device import get_device
 from utils.logging import TensorboardLogger

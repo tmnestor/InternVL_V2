@@ -14,7 +14,7 @@ import torch.optim as optim
 from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
 
-from models.internvl2 import InternVL2ReceiptClassifier
+from models.vision_language.internvl2 import InternVL2ReceiptClassifier
 from utils.device import get_device, to_device
 from utils.logging import TensorboardLogger
 

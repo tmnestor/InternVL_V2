@@ -12,7 +12,7 @@ import torchvision.transforms as T
 from PIL import Image
 from transformers import AutoTokenizer
 
-from models.internvl2 import InternVL2MultimodalModel
+from models.vision_language.internvl2 import InternVL2MultimodalModel
 
 
 def test_multimodal_model(model_path, image_path, questions):

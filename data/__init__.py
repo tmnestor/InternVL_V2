@@ -5,7 +5,7 @@ from data.dataset import ReceiptDataset, create_dataloaders
 
 # Import the ab initio data generators
 try:
-    from data.data_generators_new import (
+    from data.generators import (
         create_receipt,
         create_synthetic_multimodal_data,
         create_tax_document,

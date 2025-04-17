@@ -23,7 +23,7 @@ from models.components.projection_head import (
     CrossAttention,
     ResponseGenerator,
 )
-from models.internvl2 import InternVL2MultimodalModel
+from models.vision_language.internvl2 import InternVL2MultimodalModel
 
 
 class TestModelImplementation(unittest.TestCase):

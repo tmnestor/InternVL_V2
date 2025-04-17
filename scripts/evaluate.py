@@ -14,7 +14,7 @@ import yaml
 from config import load_config
 from data.dataset import create_dataloaders
 from evaluation.evaluator import InternVL2Evaluator
-from models.internvl2 import InternVL2ReceiptClassifier
+from models.vision_language.internvl2 import InternVL2ReceiptClassifier
 from utils.logging import setup_logger
 from utils.reproducibility import set_seed
 

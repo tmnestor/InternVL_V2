@@ -25,7 +25,7 @@ sys.modules['transformers'] = MagicMock()
 import transformers
 
 # Import model after mocking
-from models.internvl2 import InternVL2MultimodalModel
+from models.vision_language.internvl2 import InternVL2MultimodalModel
 from models.components.projection_head import CrossAttention, ResponseGenerator
 
 

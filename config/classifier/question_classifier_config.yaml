@@ -1,0 +1,43 @@
+# Configuration for Question Classifier
+
+# Model configuration
+model:
+  # Local model path (the ONLY way to load models in both environments)
+  name: "all-mpnet-base-v2"  # Model name (for logging only)
+  custom_path: "/Users/tod/PretrainedLLM/all-mpnet-base-v2"  # Local testing path
+  # custom_path: "/home/jovyan/nfs_share/models/huggingface/hub/all-mpnet-base-v2"  # Production path (uncomment in prod)
+  use_custom_path: true  # ALWAYS TRUE - we only load from local paths
+  
+  # Model architecture parameters
+  hidden_size: 768
+  num_classes: 5
+  dropout_rate: 0.1
+  max_vocab_size: 50000  # Maximum vocabulary size for tokenizer
+
+# Training configuration
+training:
+  batch_size: 16
+  num_epochs: 30
+  learning_rate: 2.0e-5
+  weight_decay: 0.01
+  warmup_steps: 100
+  gradient_accumulation_steps: 1
+  max_grad_norm: 1.0
+  lr_scheduler_type: "cosine"
+  num_workers: 1
+  max_length: 128
+  
+# Data configuration
+data:
+  data_dir: "data/balanced_question_data"
+  
+# Output configuration
+output:
+  model_dir: "models/question_classifier"
+  log_steps: 100
+  save_steps: 500
+  eval_steps: 500
+
+# Reproducibility configuration
+reproducibility:
+  seed: 42

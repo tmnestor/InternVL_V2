@@ -24,7 +24,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import model components to test
-from models.internvl2 import InternVL2MultimodalModel
+from models.vision_language.internvl2 import InternVL2MultimodalModel
 from models.components.projection_head import CrossAttention, ResponseGenerator
 
 

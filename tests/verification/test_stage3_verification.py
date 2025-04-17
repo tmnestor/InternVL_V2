@@ -28,7 +28,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from training.trainer import InternVL2Trainer
 from training.multimodal_trainer import MultimodalTrainer
 from training.multimodal_loss import MultimodalLoss
-from models.internvl2 import InternVL2ReceiptClassifier, InternVL2MultimodalModel
+from models.vision_language.internvl2 import InternVL2ReceiptClassifier, InternVL2MultimodalModel
 
 
 class MockVisionEncoder(nn.Module):
