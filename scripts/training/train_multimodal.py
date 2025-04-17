@@ -32,7 +32,7 @@ from utils.reproducibility import set_seed
 def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Train multimodal InternVL2 receipt counter")
-    parser.add_argument("--config", type=str, default="config/multimodal_config.yaml",
+    parser.add_argument("--config", type=str, default="config/model/multimodal_config.yaml",
                         help="Path to configuration file")
     parser.add_argument("--output-dir", type=str, default="models/multimodal",
                         help="Output directory for model checkpoints")

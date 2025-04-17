@@ -190,8 +190,30 @@ class MultimodalReceiptDataset(Dataset):
         filename = self.data.iloc[idx]["filename"]
         image_path = self.img_dir / filename
         receipt_count = int(self.data.iloc[idx]["receipt_count"])
-        question = str(self.data.iloc[idx]["question"])
+        question_text = str(self.data.iloc[idx]["question"])
         answer = str(self.data.iloc[idx]["answer"])
+        
+        # Check if this is actually a question or a statement
+        # If it doesn't end with ? and doesn't start with question words, treat it as a statement
+        question_markers = ["?", "how", "what", "which", "where", "when", "who", "why", "can", "do", "is", "are"]
+        is_question = question_text.endswith("?") or any(question_text.lower().startswith(q) for q in question_markers)
+        
+        if is_question:
+            # This is a proper question - use as is
+            question = question_text
+        else:
+            # This is a statement - convert to a question
+            # Map "This is X" to "Is this X?" or similar conversion
+            if question_text.lower().startswith("this is"):
+                question = "Is " + question_text[5:] + "?"
+            elif question_text.lower().startswith("i count"):
+                count_str = question_text.split()[-2]  # Extract the count number
+                question = f"How many receipts are in this image?"
+            elif question_text.lower().startswith("there"):
+                question = "Are there any receipts in this image?"
+            else:
+                # Generic conversion for other statements
+                question = "What can you tell me about this image?"
         
         # Load and process image
         try:
@@ -239,6 +261,10 @@ class MultimodalReceiptDataset(Dataset):
             "labels_attention_mask": answer_attention_mask,
             "classification_labels": torch.tensor(classification_label, dtype=torch.long),
             "receipt_count": torch.tensor(receipt_count, dtype=torch.long),
+            "original_question": question_text,  # Store original input text
+            "question": question,  # Store converted question
+            "answer": answer,
+            "question_type": "statement" if not is_question else "question",
         }
 
 
@@ -361,7 +387,7 @@ def collate_fn_multimodal(batch):
     Returns:
         Collated batch with tensors
     """
-    # Extract elements
+    # Extract tensor elements
     pixel_values = torch.stack([item["pixel_values"] for item in batch])
     text_input_ids = torch.stack([item["text_input_ids"] for item in batch])
     text_attention_mask = torch.stack([item["text_attention_mask"] for item in batch])
@@ -369,6 +395,12 @@ def collate_fn_multimodal(batch):
     labels_attention_mask = torch.stack([item["labels_attention_mask"] for item in batch])
     classification_labels = torch.stack([item["classification_labels"] for item in batch])
     receipt_counts = torch.stack([item["receipt_count"] for item in batch])
+    
+    # Extract text elements
+    original_questions = [item["original_question"] for item in batch]
+    questions = [item["question"] for item in batch]
+    answers = [item["answer"] for item in batch]
+    question_types = [item["question_type"] for item in batch]
     
     return {
         "pixel_values": pixel_values,
@@ -378,4 +410,8 @@ def collate_fn_multimodal(batch):
         "labels_attention_mask": labels_attention_mask,
         "classification_labels": classification_labels,
         "receipt_count": receipt_counts,
+        "original_question": original_questions,
+        "question": questions,
+        "answer": answers,
+        "question_type": question_types,
     }

@@ -921,8 +921,41 @@ class MultimodalTrainer:
             
             # Log some example predictions
             self.logger.info("Example validation predictions:")
-            for i in range(min(3, len(all_predictions))):
-                self.logger.info(f"Question: {all_targets[i]}")
+            # Store questions for every example
+            questions_to_display = []
+            
+            # First get questions from the batch data
+            for batch_idx, batch_data in enumerate(val_loader):
+                if "question" in batch_data:
+                    questions_to_display.extend(batch_data["question"])
+                elif "original_question" in batch_data:
+                    questions_to_display.extend(batch_data["original_question"])
+                
+                # Only need a few questions
+                if len(questions_to_display) >= 3:
+                    break
+            
+            # In case we couldn't get questions from batch data
+            if not questions_to_display:
+                # Generate reasonable questions from the targets
+                for i in range(min(3, len(all_targets))):
+                    statement = all_targets[i]
+                    
+                    # Process statement to form a question
+                    if statement.lower().startswith("this is"):
+                        question = f"Is this {statement[8:]}?"
+                    elif statement.lower().startswith("i count"):
+                        question = "How many receipts are in this image?"
+                    elif statement.lower().startswith("there"):
+                        question = "Are there any receipts in this image?"
+                    else:
+                        question = "What can you tell me about this image?"
+                        
+                    questions_to_display.append(question)
+            
+            # Display at most 3 examples
+            for i in range(min(3, len(all_predictions), len(questions_to_display))):
+                self.logger.info(f"Question: {questions_to_display[i]}")
                 self.logger.info(f"Answer: {all_predictions[i]}")
                 self.logger.info("-" * 30)
         
