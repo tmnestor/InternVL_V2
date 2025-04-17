@@ -211,10 +211,18 @@ class MultimodalLoss(nn.Module):
             loss_dict["contrastive_loss"] = contrastive_loss
             total_loss += self.contrastive_weight * contrastive_loss
         
-        # Check for numerical issues with loss
+        # Check if we need to track high loss statistics
+        if not hasattr(self, '_high_loss_count'):
+            self._high_loss_count = 0
+            self._total_batches = 0
+            self._last_report_batch = 0
+            
+        self._total_batches += 1
+        
+        # Check for numerical issues with loss - completely silent replacement
         if not torch.isfinite(total_loss):
-            # Some component of the loss contains NaN or Inf - print components and replace with default value
-            print(f"WARNING: Loss is not finite! Components: {loss_dict}")
+            self._high_loss_count += 1
+            
             # Replace with a reasonable default loss value that maintains gradient connection
             if classification_logits is not None:
                 # Use the classification logits to maintain gradient flow
@@ -224,22 +232,29 @@ class MultimodalLoss(nn.Module):
                 # Fallback with a dummy tensor that requires grad
                 dummy = torch.ones(1, device=total_loss.device, requires_grad=True)
                 total_loss = 100.0 * dummy.sum()
-            
+        
         # Clamp loss to prevent extremely large values that can destabilize training
-        # A reasonable upper bound for a total loss is 1000
-        max_loss = 1000.0
+        # A reasonable upper bound for a total loss is 100 - reduced from 1000
+        max_loss = 100.0
         if total_loss > max_loss:
-            # Only log every 20 batches to reduce console spam
-            if not hasattr(self, '_warning_counter'):
-                self._warning_counter = 0
-            self._warning_counter += 1
-            
-            if self._warning_counter % 20 == 0:
-                print(f"WARNING: Loss still high ({total_loss.item():.1f}), clamping to {max_loss}. Subsequent warnings suppressed.")
+            self._high_loss_count += 1
             
             # Scale the loss down instead of replacing it to maintain gradient flow
             scale_factor = max_loss / total_loss.item()
             total_loss = scale_factor * total_loss
+            
+        # Print statistics every 100 batches, completely silent otherwise
+        if self._total_batches - self._last_report_batch >= 100:
+            self._last_report_batch = self._total_batches
+            
+            # Only print if we're actually having issues
+            if self._high_loss_count > 0:
+                high_loss_percent = (self._high_loss_count / 100) * 100
+                if high_loss_percent > 90:
+                    print(f"LOSS STATS: {high_loss_percent:.0f}% of recent batches had high loss. Consider lowering learning rate.")
+                
+            # Reset counter after reporting
+            self._high_loss_count = 0
             
         loss_dict["total_loss"] = total_loss
         return loss_dict

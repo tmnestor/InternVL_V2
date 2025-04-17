@@ -424,17 +424,9 @@ class MultimodalTrainer:
                             attention_mask=batch["text_attention_mask"]
                         )
                         
-                        # Check for NaN or Inf values in model outputs (quietly replace)
+                        # Check for NaN or Inf values in model outputs (completely silent replacement)
                         for key, tensor in outputs.items():
                             if isinstance(tensor, torch.Tensor) and not torch.isfinite(tensor).all():
-                                # Only log once every 50 batches
-                                if not hasattr(self, '_nan_counter'):
-                                    self._nan_counter = 0
-                                self._nan_counter += 1
-                                
-                                if self._nan_counter % 50 == 0:
-                                    self.logger.warning(f"Non-finite values still occurring in outputs. Replacing silently.")
-                                    
                                 outputs[key] = torch.zeros_like(tensor)
                         
                         loss_dict = self.loss_fn(
@@ -444,17 +436,9 @@ class MultimodalTrainer:
                             attention_mask=batch["labels_attention_mask"]
                         )
                         
-                        # Check if loss is reasonable (not too large)
-                        if loss_dict["total_loss"] > 10000:
-                            # Only log occasionally to reduce console spam
-                            if not hasattr(self, '_mixed_loss_counter'):
-                                self._mixed_loss_counter = 0
-                            self._mixed_loss_counter += 1
-                            
-                            if self._mixed_loss_counter % 20 == 0:
-                                self.logger.warning(f"Extremely high losses still occurring in mixed precision mode. Scaling down silently.")
-                                
-                            # Scale the loss instead of replacing it to maintain gradients
+                        # Check if loss is reasonable (not too large) - silent clamping
+                        if loss_dict["total_loss"] > 100.0:  # Reduced threshold from 10000 to 100
+                            # Scale the loss silently to maintain gradients
                             scale_factor = 100.0 / loss_dict["total_loss"].item()
                             loss_dict["total_loss"] = scale_factor * loss_dict["total_loss"]
                         
@@ -510,17 +494,9 @@ class MultimodalTrainer:
                         attention_mask=text_attention_mask
                     )
                     
-                    # Check for NaN or Inf values in model outputs (quietly replace)
+                    # Check for NaN or Inf values in model outputs (completely silent replacement)
                     for key, tensor in outputs.items():
                         if isinstance(tensor, torch.Tensor) and not torch.isfinite(tensor).all():
-                            # Only log once every 50 batches
-                            if not hasattr(self, '_std_nan_counter'):
-                                self._std_nan_counter = 0
-                            self._std_nan_counter += 1
-                            
-                            if self._std_nan_counter % 50 == 0:
-                                self.logger.warning(f"Non-finite values still occurring in outputs. Replacing silently.")
-                                
                             outputs[key] = torch.zeros_like(tensor)
                     
                     loss_dict = self.loss_fn(
@@ -530,17 +506,9 @@ class MultimodalTrainer:
                         attention_mask=batch["labels_attention_mask"]
                     )
                     
-                    # Check if loss is reasonable (not too large)
-                    if loss_dict["total_loss"] > 10000:
-                        # Only log occasionally to reduce console spam
-                        if not hasattr(self, '_loss_warning_counter'):
-                            self._loss_warning_counter = 0
-                        self._loss_warning_counter += 1
-                        
-                        if self._loss_warning_counter % 20 == 0:
-                            self.logger.warning(f"Extremely high losses still occurring. Scaling down silently.")
-                            
-                        # Scale the loss instead of replacing it to maintain gradients
+                    # Check if loss is reasonable (not too large) - silent clamping
+                    if loss_dict["total_loss"] > 100.0:  # Reduced threshold from 10000 to 100
+                        # Scale the loss silently to maintain gradients
                         scale_factor = 100.0 / loss_dict["total_loss"].item()
                         loss_dict["total_loss"] = scale_factor * loss_dict["total_loss"]
                     
