@@ -817,6 +817,10 @@ class InternVL2MultimodalModel(nn.Module):
                     use_custom_path=use_custom_path,
                     use_internvl_language_model=use_internvl_lm
                 )
+                
+                # Ensure all parameters are set to require gradients 
+                for param in self.question_classifier.parameters():
+                    param.requires_grad = True
                 self.logger.info(f"Initialized question classifier with model: {model_name}")
             except Exception as e:
                 # This is a fatal error - we need question classification to work

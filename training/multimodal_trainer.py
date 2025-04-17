@@ -461,6 +461,32 @@ class MultimodalTrainer:
                             param_group['lr'] = param_group['lr'] * 0.1
                         self.error_count = 0
                 
+                # Check if any parameters require gradients
+                params_requiring_grad = any(p.requires_grad for p in self.model.parameters())
+                if not params_requiring_grad:
+                    self.logger.warning("No parameters require gradients. Training will have no effect.")
+                    
+                    # Force some parameters to have gradients if needed
+                    self.logger.warning("Forcing some parameters to require gradients")
+                    
+                    # Force at least the cross attention, classification head and response generator to have gradients
+                    if hasattr(self.model, "cross_attention"):
+                        for param in self.model.cross_attention.parameters():
+                            param.requires_grad = True
+                            
+                    if hasattr(self.model, "classification_head"):
+                        for param in self.model.classification_head.parameters():
+                            param.requires_grad = True
+                            
+                    if hasattr(self.model, "response_generator"):
+                        for param in self.model.response_generator.parameters():
+                            param.requires_grad = True
+                    
+                    # If we have a question classifier, ensure it has gradients
+                    if hasattr(self.model, "question_classifier"):
+                        for param in self.model.question_classifier.parameters():
+                            param.requires_grad = True
+                
                 # Backward pass with gradient scaling
                 self.scaler.scale(loss).backward()
                 
@@ -531,6 +557,32 @@ class MultimodalTrainer:
                         for param_group in self.optimizer.param_groups:
                             param_group['lr'] = param_group['lr'] * 0.1
                         self.error_count = 0
+                
+                # Check if any parameters require gradients
+                params_requiring_grad = any(p.requires_grad for p in self.model.parameters())
+                if not params_requiring_grad:
+                    self.logger.warning("No parameters require gradients. Training will have no effect.")
+                    
+                    # Force some parameters to have gradients if needed
+                    self.logger.warning("Forcing some parameters to require gradients")
+                    
+                    # Force at least the cross attention, classification head and response generator to have gradients
+                    if hasattr(self.model, "cross_attention"):
+                        for param in self.model.cross_attention.parameters():
+                            param.requires_grad = True
+                            
+                    if hasattr(self.model, "classification_head"):
+                        for param in self.model.classification_head.parameters():
+                            param.requires_grad = True
+                            
+                    if hasattr(self.model, "response_generator"):
+                        for param in self.model.response_generator.parameters():
+                            param.requires_grad = True
+                    
+                    # If we have a question classifier, ensure it has gradients
+                    if hasattr(self.model, "question_classifier"):
+                        for param in self.model.question_classifier.parameters():
+                            param.requires_grad = True
                 
                 # Backward pass
                 loss.backward()

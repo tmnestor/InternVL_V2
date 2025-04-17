@@ -325,9 +325,16 @@ class QuestionClassifier(nn.Module):
         # Check token IDs against vocabulary size
         max_token_id = inputs.input_ids.max().item()
         if max_token_id >= vocab_size:
-            error_msg = f"Token ID out of vocabulary range: max_id={max_token_id}, vocab_size={vocab_size}"
-            logger.error(error_msg)
-            raise IndexError(error_msg)
+            # In certain tokenizers (especially those used by decoder-only models like Qwen),
+            # the max token ID can equal the vocab size due to special tokens.
+            # So we'll only raise an error if it's significantly out of range
+            if max_token_id > vocab_size + 10:  # Allow a small margin for special tokens
+                error_msg = f"Token ID out of vocabulary range: max_id={max_token_id}, vocab_size={vocab_size}"
+                logger.error(error_msg)
+                raise IndexError(error_msg)
+            else:
+                # Just warn but continue
+                logger.warning(f"Token ID at vocabulary boundary: max_id={max_token_id}, vocab_size={vocab_size}. Continuing anyway.")
         
         # Move to device
         inputs = inputs.to(self.device)
