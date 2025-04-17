@@ -495,11 +495,11 @@ def main():
         # IMPORTANT: We need to pass the custom path as the model_name parameter
         # This ensures we're loading from the local path and not trying HuggingFace
         model = QuestionClassifier(
-            model_name=custom_path,  # Use the local path, not the model name
+            model_name=custom_path,  # Use the local path from config
             hidden_size=hidden_size,
             num_classes=len(train_dataset.question_types),
             device=device,
-            use_custom_path=True  # Always true to ensure local path loading
+            use_custom_path=use_custom_path  # Use the value from config
         )
         logger.info(f"Successfully created model with model from: {custom_path}")
     except Exception as e:

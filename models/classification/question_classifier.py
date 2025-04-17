@@ -40,22 +40,24 @@ class QuestionClassifier(nn.Module):
         super().__init__()
         logger = logging.getLogger(__name__)
         
-        # Check for custom path if specified
-        custom_path = "/home/jovyan/nfs_share/models/huggingface/hub/ModernBERT-base"
+        # The model_name parameter should contain the path from the config file when use_custom_path is True
+        # No hard-coded paths - use only what's provided in the config
         
         # Determine the model path to use
-        if use_custom_path and os.path.exists(custom_path) and model_name != custom_path:
-            logger.info(f"Found model at custom path: {custom_path}")
-            model_path = custom_path
-        elif model_name.startswith("/") and os.path.exists(model_name):
-            # If model_name is already a full path and exists, use it
-            logger.info(f"Using model from provided absolute path: {model_name}")
-            model_path = model_name
-            use_custom_path = True  # Treat absolute paths like custom paths for loading
+        if use_custom_path:
+            # When use_custom_path is True, model_name should be a valid path from config
+            if os.path.exists(model_name):
+                logger.info(f"Using model from config-provided path: {model_name}")
+                model_path = model_name
+            else:
+                # Path doesn't exist - this is a fatal error since we're expecting a valid path
+                error_msg = f"Model path from config does not exist: {model_name}"
+                logger.error(error_msg)
+                raise FileNotFoundError(error_msg)
         else:
-            logger.info(f"Using model from provided name: {model_name}")
+            # Using regular HuggingFace model (should not happen in production)
+            logger.warning(f"Using HuggingFace model by name (not recommended): {model_name}")
             model_path = model_name
-            use_custom_path = False  # Reset for model name (not path)
         
         # Load tokenizer FIRST - this ensures consistent vocabularies
         if use_custom_path:
