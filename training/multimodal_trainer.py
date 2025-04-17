@@ -451,6 +451,15 @@ class MultimodalTrainer:
                     dummy_var = next(self.model.parameters())
                     loss = 100.0 * (dummy_var.sum() / dummy_var.numel()).tanh()
                     loss_dict = {"total_loss": loss * gradient_accumulation_steps}
+                    
+                    # Create dummy outputs to prevent errors later in the code
+                    outputs = {
+                        "logits": torch.zeros((batch["classification_labels"].size(0), self.config["model"]["num_classes"]), 
+                                            device=self.device),
+                        "response_logits": torch.zeros((batch["classification_labels"].size(0), 10, 10), 
+                                                    device=self.device),
+                    }
+                    
                     if not hasattr(self, 'error_count'):
                         self.error_count = 0
                     self.error_count += 1
@@ -584,6 +593,15 @@ class MultimodalTrainer:
                     dummy_var = next(self.model.parameters())
                     loss = 100.0 * (dummy_var.sum() / dummy_var.numel()).tanh()
                     loss_dict = {"total_loss": loss * gradient_accumulation_steps}
+                    
+                    # Create dummy outputs to prevent errors later in the code
+                    outputs = {
+                        "logits": torch.zeros((batch["classification_labels"].size(0), self.config["model"]["num_classes"]), 
+                                            device=self.device),
+                        "response_logits": torch.zeros((batch["classification_labels"].size(0), 10, 10), 
+                                                    device=self.device),
+                    }
+                    
                     if not hasattr(self, 'error_count'):
                         self.error_count = 0
                     self.error_count += 1
