@@ -817,10 +817,20 @@ class InternVL2MultimodalModel(nn.Module):
                 # Create a classifier using InternVL2's language model and tokenizer
                 self.logger.info("Creating question classifier using InternVL2's language model and tokenizer")
                 
+                # Get the actual hidden size from the language model
+                if hasattr(self.language_model, "config") and hasattr(self.language_model.config, "hidden_size"):
+                    language_model_hidden_size = self.language_model.config.hidden_size
+                    self.logger.info(f"Detected language model hidden size: {language_model_hidden_size}")
+                else:
+                    # Default to the hidden size parameter from config
+                    language_model_hidden_size = hidden_size
+                    self.logger.warning(f"Could not detect language model hidden size, using default: {language_model_hidden_size}")
+                
                 # Instantiate with InternVL2's tokenizer and language model
                 self.question_classifier = QuestionClassifier(
                     model_name="internvl2-internal",  # This is just a name, not actually used for loading
-                    hidden_size=hidden_size,
+                    # Use the detected hidden size from the language model
+                    hidden_size=language_model_hidden_size,
                     num_classes=num_classes,
                     # Pass the actual tokenizer and language model objects
                     encoder=self.language_model,  # Use the same language model

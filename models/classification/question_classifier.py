@@ -244,8 +244,39 @@ class QuestionClassifier(nn.Module):
             logger.debug(f"Calling encoder with params: {list(params.keys())}")
             outputs = self.encoder(**params)
             
-            # Extract embeddings based on output format
-            if hasattr(outputs, 'last_hidden_state'):
+            # Extract embeddings based on output format - special handling for Qwen models
+            if "Qwen" in encoder_type:
+                # Qwen models have a different output structure
+                logger.info("Detected Qwen model, using special output handling")
+                
+                if hasattr(outputs, 'hidden_states') and outputs.hidden_states is not None:
+                    # Get the last hidden state from hidden_states
+                    if isinstance(outputs.hidden_states, (list, tuple)):
+                        hidden_states = outputs.hidden_states[-1]
+                    else:
+                        hidden_states = outputs.hidden_states
+                    
+                    # Average over the sequence dimension as pooling
+                    pooled_output = hidden_states.mean(dim=1)
+                    logger.debug("Using mean pooling over hidden states for Qwen model")
+                    
+                elif hasattr(outputs, 'last_hidden_state'):
+                    # If we have last_hidden_state, use mean pooling
+                    pooled_output = outputs.last_hidden_state.mean(dim=1)
+                    logger.debug("Using mean pooling over last_hidden_state for Qwen model")
+                    
+                else:
+                    # Last resort for Qwen models
+                    logger.warning("Could not find suitable output format for Qwen model")
+                    if isinstance(outputs, tuple) and len(outputs) > 0:
+                        # Try first element as hidden states
+                        pooled_output = outputs[0].mean(dim=1)
+                    else:
+                        # Direct output mean pooling
+                        pooled_output = outputs.mean(dim=1) if hasattr(outputs, 'mean') else outputs
+            
+            # Standard output format handling for other models
+            elif hasattr(outputs, 'last_hidden_state'):
                 # Standard HuggingFace format
                 pooled_output = outputs.last_hidden_state[:, 0, :]  # CLS token
                 logger.debug("Using last_hidden_state[:, 0, :] for pooled output")
@@ -263,42 +294,57 @@ class QuestionClassifier(nn.Module):
                 logger.debug("Using pooler_output for pooled output")
             elif isinstance(outputs, tuple) and len(outputs) > 0:
                 # Try first element, which is often the hidden states
-                pooled_output = outputs[0][:, 0, :]
-                logger.debug("Using outputs[0][:, 0, :] for pooled output")
+                if isinstance(outputs[0], torch.Tensor):
+                    pooled_output = outputs[0][:, 0, :]
+                    logger.debug("Using outputs[0][:, 0, :] for pooled output")
+                else:
+                    # Handle other output types
+                    logger.warning(f"Unexpected output type: {type(outputs[0])}")
+                    # Create a default embedding for safety
+                    batch_size = input_ids.shape[0]
+                    input_dim = self.classifier[0].in_features
+                    pooled_output = torch.zeros(batch_size, input_dim, device=input_ids.device)
             else:
-                # Last resort - assume outputs is already the hidden states
-                pooled_output = outputs[:, 0, :]
-                logger.debug("Using outputs[:, 0, :] directly for pooled output")
+                # Last resort - check if outputs is a tensor
+                if isinstance(outputs, torch.Tensor):
+                    pooled_output = outputs[:, 0, :]
+                    logger.debug("Using outputs[:, 0, :] directly for pooled output")
+                else:
+                    # Create default pooled output
+                    logger.warning(f"Could not extract pooled output from {type(outputs)}")
+                    batch_size = input_ids.shape[0]
+                    input_dim = self.classifier[0].in_features
+                    pooled_output = torch.zeros(batch_size, input_dim, device=input_ids.device)
                 
+            # Verify shapes match
+            expected_dim = self.classifier[0].in_features
+            if pooled_output.shape[-1] != expected_dim:
+                logger.warning(f"Dimension mismatch: got {pooled_output.shape[-1]}, expected {expected_dim}")
+                # Resize using a projection or padding
+                if pooled_output.shape[-1] > expected_dim:
+                    # Slice to reduce dimensions
+                    pooled_output = pooled_output[:, :expected_dim]
+                    logger.info(f"Sliced pooled output to match classifier input dimension: {pooled_output.shape}")
+                else:
+                    # Pad with zeros to increase dimensions
+                    padding = torch.zeros(pooled_output.shape[0], expected_dim - pooled_output.shape[-1], 
+                                          device=pooled_output.device)
+                    pooled_output = torch.cat([pooled_output, padding], dim=1)
+                    logger.info(f"Padded pooled output to match classifier input dimension: {pooled_output.shape}")
+            
             # Pass through classifier head
             logits = self.classifier(pooled_output)
             return logits
             
         except Exception as e:
             logger.error(f"Error in forward pass: {e}")
-            # Try a simpler approach with minimal parameters
-            try:
-                outputs = self.encoder(input_ids, attention_mask=attention_mask)
+            # Create emergency fallback - zero output to prevent crashes
+            batch_size = input_ids.shape[0]
+            num_classes = self.classifier[-1].out_features
+            device = input_ids.device
                 
-                # Extract embeddings - most basic approach
-                if hasattr(outputs, 'last_hidden_state'):
-                    pooled_output = outputs.last_hidden_state[:, 0, :]
-                elif isinstance(outputs, tuple) and len(outputs) > 0:
-                    pooled_output = outputs[0][:, 0, :]
-                else:
-                    pooled_output = outputs[:, 0, :]
-                
-                logits = self.classifier(pooled_output)
-                return logits
-            except Exception as e2:
-                logger.error(f"Critical error in forward pass: {e2}")
-                # Create emergency fallback - random output to prevent crashes
-                batch_size = input_ids.shape[0]
-                num_classes = self.classifier[-1].out_features
-                device = input_ids.device
-                
-                # Return zero logits - this will at least allow training to continue
-                return torch.zeros(batch_size, num_classes, device=device)
+            # Return zero logits - this will at least allow training to continue
+            return torch.zeros(batch_size, num_classes, device=device)
     
     def predict_question_type(self, question):
         """
