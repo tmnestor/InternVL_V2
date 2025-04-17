@@ -11,8 +11,11 @@ model:
   # pretrained_path: "$HOME/nfs_share/models/huggingface/hub/InternVL2_5-1B"
   # pretrained_path: "/Users/tod/PretrainedLLM/InternVL2_5-1B"
   
-  # Using InternVL2 model - we need a model with vision encoder and language encoder/decoder
+  # Using InternVL2 model - this is a unified model with both vision and language components
   pretrained_path: "/home/jovyan/nfs_share/models/huggingface/hub/InternVL2_5-1B"
+  # InternVL2 has an integrated language model - no need to load a separate one
+  # The LLM component can be accessed via model.llm, model.language_model, or similar attributes
+  # The model architecture handles both vision and language processing in a unified way
   multimodal: true  # Enable multimodal mode
   num_classes: 3  # 0, 1, 2+ receipts for classification task
   use_8bit: false  # Disable 8-bit quantization for better accuracy

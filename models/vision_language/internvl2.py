@@ -547,30 +547,57 @@ class InternVL2MultimodalModel(nn.Module):
                     self.logger.warning("Could not extract vision encoder directly. Using full model.")
                     self.vision_encoder = self.model
         
-        # Get the language model component
-        if hasattr(self.model, "language_model"):
+        # Get the language model component - check all possible locations
+        # Get the model type to help with debugging
+        model_type = type(self.model).__name__
+        self.logger.info(f"Model class type: {model_type}")
+        
+        # Try to get model_type from config if available
+        if hasattr(self.model, "config") and hasattr(self.model.config, "model_type"):
+            config_model_type = self.model.config.model_type
+            self.logger.info(f"Model config type: {config_model_type}")
+        
+        # Try all possible attribute names for language model component
+        if hasattr(self.model, "llm"):
+            self.language_model = self.model.llm
+            self.logger.info("Using model.llm for text encoding")
+        elif hasattr(self.model, "language_model"):
             self.language_model = self.model.language_model
-            self.logger.info("Using language_model for text encoding")
+            self.logger.info("Using model.language_model for text encoding")
+        elif hasattr(self.model, "text_model"):
+            self.language_model = self.model.text_model
+            self.logger.info("Using model.text_model for text encoding")
+        elif hasattr(self.model, "text_encoder"):
+            self.language_model = self.model.text_encoder
+            self.logger.info("Using model.text_encoder for text encoding")
+        elif hasattr(self.model, "LLM"):
+            self.language_model = self.model.LLM
+            self.logger.info("Using model.LLM for text encoding")
+        elif hasattr(self.model, "llama"):
+            self.language_model = self.model.llama
+            self.logger.info("Using model.llama for text encoding")
+        elif model_type == "MPNetModel" or hasattr(self.model, "encoder"):
+            # For encoder-only models like MPNet - use the model itself as the language model
+            self.logger.info(f"Using {model_type} directly as language model")
+            self.language_model = self.model
         else:
-            try:
-                self.language_model = self.model.text_encoder
-                self.logger.info("Using text_encoder for text encoding")
-            except:
-                try:
-                    self.language_model = self.model.text_model
-                    self.logger.info("Using text_model for text encoding")
-                except:
-                    # Check if we're using an MPNet or other standalone encoder model
-                    model_type = type(self.model).__name__
-                    self.logger.info(f"Model is of type: {model_type}")
-                    
-                    if model_type == "MPNetModel" or hasattr(self.model, "encoder"):
-                        # For encoder-only models like MPNet - use the model itself as the language model
-                        self.logger.info(f"Using {model_type} directly as language model")
-                        self.language_model = self.model
-                    else:
-                        # If language model component was deleted, restore it
-                        self.logger.warning("Language model not found. Loading a new language model instance.")
+            # If we still can't find the language model, print model attributes to help debug
+            self.logger.warning(f"Could not find language model component. Examining model structure...")
+            
+            # This will help debug model structure by printing all top-level attributes
+            all_attributes = [attr for attr in dir(self.model) if not attr.startswith('_')]
+            self.logger.info(f"Model attributes: {all_attributes}")
+            
+            # Check for nested attributes that might contain the language model
+            potential_containers = ["model", "transformer", "encoder", "decoder"]
+            for container in potential_containers:
+                if hasattr(self.model, container):
+                    container_obj = getattr(self.model, container)
+                    container_attrs = [attr for attr in dir(container_obj) if not attr.startswith('_')]
+                    self.logger.info(f"Attributes in model.{container}: {container_attrs}")
+            
+            # If language model component was deleted, restore it
+            self.logger.warning("Language model not found. Loading a new language model instance.")
                         try:
                             # Try to get a compatible language model from the hub
                             # First detect the model type to determine which class to use
@@ -578,8 +605,34 @@ class InternVL2MultimodalModel(nn.Module):
                                 model_type = self.model.config.model_type
                                 self.logger.info(f"Detected model type from config: {model_type}")
                                 
-                                if model_type in ["mpnet", "bert", "roberta", "electra"]:
-                                    # These are encoder-only models
+                                # For InternVL models, use their integrated language model component
+                                if model_type == "internvl_chat" or model_type == "internvl2_chat" or "internvl" in model_type.lower():
+                                    # InternVL already has a language model built in
+                                    self.logger.info(f"Using integrated language model from {model_type}")
+                                    
+                                    # Try to extract the language model component - check all common attribute names
+                                    if hasattr(self.model, "llm"):
+                                        self.language_model = self.model.llm
+                                        self.logger.info("Using model.llm as language model")
+                                    elif hasattr(self.model, "language_model"):
+                                        self.language_model = self.model.language_model
+                                        self.logger.info("Using model.language_model as language model")
+                                    elif hasattr(self.model, "text_model"):
+                                        self.language_model = self.model.text_model
+                                        self.logger.info("Using model.text_model as language model")
+                                    elif hasattr(self.model, "LLM"):
+                                        self.language_model = self.model.LLM
+                                        self.logger.info("Using model.LLM as language model")
+                                    elif hasattr(self.model, "llama"):
+                                        self.language_model = self.model.llama
+                                        self.logger.info("Using model.llama as language model")
+                                    else:
+                                        # If can't extract specific component, use the whole model
+                                        self.logger.warning("Could not find specific language model component. Using full model.")
+                                        self.language_model = self.model
+                                elif model_type in ["mpnet", "bert", "roberta", "electra"]:
+                                    # These are encoder-only models - not ideal for generation
+                                    self.logger.warning(f"Using encoder-only model {model_type} - limited generation capability")
                                     self.language_model = AutoModel.from_pretrained(
                                         pretrained_path,
                                         trust_remote_code=True,
@@ -595,12 +648,24 @@ class InternVL2MultimodalModel(nn.Module):
                                     )
                                     self.logger.info(f"Loaded language model as AutoModelForCausalLM")
                             else:
-                                # No config type available, use AutoModel as fallback
-                                self.language_model = AutoModel.from_pretrained(
-                                    pretrained_path,
-                                    trust_remote_code=True,
-                                    local_files_only=True
-                                )
+                                # Try to extract language model component directly
+                                if hasattr(self.model, "llm"):
+                                    self.language_model = self.model.llm
+                                    self.logger.info("Using model.llm as language model")
+                                elif hasattr(self.model, "language_model"):
+                                    self.language_model = self.model.language_model
+                                    self.logger.info("Using model.language_model as language model")
+                                elif hasattr(self.model, "text_model"):
+                                    self.language_model = self.model.text_model
+                                    self.logger.info("Using model.text_model as language model") 
+                                else:
+                                    # No config type available, use AutoModel as fallback
+                                    self.language_model = AutoModel.from_pretrained(
+                                        pretrained_path,
+                                        trust_remote_code=True,
+                                        local_files_only=True
+                                    )
+                                    self.logger.info("Loaded language model as generic AutoModel")
                                 self.logger.info("Loaded language model as generic AutoModel")
                         except Exception as e:
                             self.logger.error(f"Error loading language model: {e}")
@@ -837,7 +902,30 @@ class InternVL2MultimodalModel(nn.Module):
                 model_type = type(self.language_model).__name__
                 self.logger.debug(f"Language model type: {model_type}")
                 
-                if model_type == "MPNetModel" or model_type.endswith(("BertModel", "RobertaModel", "ElectraModel")):
+                # Get the valid parameters for this model's forward method
+                if hasattr(self.language_model, "__call__") and hasattr(self.language_model.__call__, "__code__"):
+                    # Inspect the function signature to see what parameters it accepts
+                    sig = inspect.signature(self.language_model.forward)
+                    valid_params = sig.parameters.keys()
+                    self.logger.debug(f"Language model valid params: {valid_params}")
+                    
+                    # Create a dictionary of parameters that are valid for this model
+                    params = {
+                        "input_ids": text_input_ids,
+                        "attention_mask": attention_mask,
+                    }
+                    
+                    # Only add parameters that are valid for this model
+                    if "output_hidden_states" in valid_params:
+                        params["output_hidden_states"] = True
+                    if "return_dict" in valid_params:
+                        params["return_dict"] = True
+                    if "use_cache" in valid_params:
+                        params["use_cache"] = False
+                    
+                    # Call the model with the valid parameters
+                    text_outputs = self.language_model(**params)
+                elif model_type == "MPNetModel" or model_type.endswith(("BertModel", "RobertaModel", "ElectraModel")):
                     # For encoder-only models, don't use use_cache parameter
                     text_outputs = self.language_model(
                         input_ids=text_input_ids,
@@ -846,7 +934,7 @@ class InternVL2MultimodalModel(nn.Module):
                         return_dict=True
                     )
                 else:
-                    # For decoder models, can use use_cache
+                    # For decoder models or unknown types, try with use_cache parameter first
                     try:
                         text_outputs = self.language_model(
                             input_ids=text_input_ids,
@@ -855,14 +943,23 @@ class InternVL2MultimodalModel(nn.Module):
                             return_dict=True,
                             use_cache=False  # Disable KV caching to save memory during training
                         )
-                    except TypeError:
-                        # Fallback if use_cache not supported
-                        text_outputs = self.language_model(
-                            input_ids=text_input_ids,
-                            attention_mask=attention_mask,
-                            output_hidden_states=True,
-                            return_dict=True
-                        )
+                    except (TypeError, ValueError, RuntimeError) as e:
+                        self.logger.debug(f"Error with use_cache=False: {e}")
+                        # Fallback if use_cache not supported or other errors
+                        try:
+                            text_outputs = self.language_model(
+                                input_ids=text_input_ids,
+                                attention_mask=attention_mask,
+                                output_hidden_states=True,
+                                return_dict=True
+                            )
+                        except (TypeError, ValueError, RuntimeError) as e2:
+                            self.logger.debug(f"Error with standard arguments: {e2}")
+                            # Last-resort fallback with minimal arguments
+                            text_outputs = self.language_model(
+                                input_ids=text_input_ids,
+                                attention_mask=attention_mask
+                            )
                 
                 # Extract text embeddings - handle all possible output formats
                 if hasattr(text_outputs, 'last_hidden_state'):

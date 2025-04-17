@@ -103,6 +103,28 @@ def main():
         freeze_language_model=False  # Train language model from the start
     )
     
+    # Debug: Print model structure to help diagnose language model integration
+    logger.info("Model initialized. Checking structure...")
+    
+    # Log information about model components
+    if hasattr(model, 'model'):
+        logger.info(f"Main model type: {type(model.model).__name__}")
+        if hasattr(model.model, 'config'):
+            if hasattr(model.model.config, 'model_type'):
+                logger.info(f"Model config type: {model.model.config.model_type}")
+    
+    # Log language model detection
+    if hasattr(model, 'language_model'):
+        logger.info(f"Language model detected: {type(model.language_model).__name__}")
+    else:
+        logger.error("No language model component detected!")
+        
+    # Log vision encoder detection
+    if hasattr(model, 'vision_encoder'):
+        logger.info(f"Vision encoder detected: {type(model.vision_encoder).__name__}")
+    else:
+        logger.error("No vision encoder component detected!")
+    
     # Resume from checkpoint if specified
     start_epoch = 0
     if args.resume:
