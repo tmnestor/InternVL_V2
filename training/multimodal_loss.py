@@ -229,7 +229,14 @@ class MultimodalLoss(nn.Module):
         # A reasonable upper bound for a total loss is 1000
         max_loss = 1000.0
         if total_loss > max_loss:
-            print(f"WARNING: Loss is too high ({total_loss.item():.1f}), clamping to {max_loss}")
+            # Only log every 20 batches to reduce console spam
+            if not hasattr(self, '_warning_counter'):
+                self._warning_counter = 0
+            self._warning_counter += 1
+            
+            if self._warning_counter % 20 == 0:
+                print(f"WARNING: Loss still high ({total_loss.item():.1f}), clamping to {max_loss}. Subsequent warnings suppressed.")
+            
             # Scale the loss down instead of replacing it to maintain gradient flow
             scale_factor = max_loss / total_loss.item()
             total_loss = scale_factor * total_loss
