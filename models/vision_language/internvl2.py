@@ -488,10 +488,12 @@ class InternVL2MultimodalModel(nn.Module):
             self.logger.info(f"Loading model from local path: {pretrained_path}")
             # Set up the right parameters based on config
             kwargs = {
-                # "device_map": "auto",  # Commented for macOS development - re-enable for Linux GPU
+                "device_map": "auto",  # Enable device map for memory optimization
                 "trust_remote_code": True,
                 "local_files_only": True,
-                # "max_memory": {0: "16GB"},  # Commented for macOS development - re-enable for Linux GPU
+                "max_memory": {0: "14GB"},  # Limit memory usage to avoid OOM
+                "offload_folder": "offload_folder",  # Enable disk offloading
+                "offload_state_dict": True,  # Offload weights when not in use
                 "torch_dtype": torch.float32  # Use float32 for CPU compatibility
             }
             
@@ -607,26 +609,45 @@ class InternVL2MultimodalModel(nn.Module):
                                 "Please ensure the model has a language component."
                             )
         
-        # Disable gradient checkpointing for model components
+        # Enable gradient checkpointing for model components to save memory
         try:
-            # Disable gradient checkpointing in model config
+            # Enable gradient checkpointing in model config
             if hasattr(self.model, "config") and hasattr(self.model.config, "gradient_checkpointing"):
-                self.model.config.gradient_checkpointing = False
-                self.logger.info("Disabled gradient checkpointing in model config")
+                self.model.config.gradient_checkpointing = True
+                self.model.config.use_cache = False  # Disable KV-cache to save memory
+                self.logger.info("Enabled gradient checkpointing in model config")
                 
-            # Disable gradient checkpointing in vision encoder config
-            if (hasattr(self.vision_encoder, "config") 
-                and hasattr(self.vision_encoder.config, "gradient_checkpointing")):
-                self.vision_encoder.config.gradient_checkpointing = False
-                self.logger.info("Disabled gradient checkpointing in vision encoder config")
+            # Enable gradient checkpointing in vision encoder if available
+            if hasattr(self.vision_encoder, "config"):
+                if hasattr(self.vision_encoder.config, "gradient_checkpointing"):
+                    self.vision_encoder.config.gradient_checkpointing = True
+                    self.logger.info("Enabled gradient checkpointing in vision encoder config")
+                if hasattr(self.vision_encoder.config, "use_cache"):
+                    self.vision_encoder.config.use_cache = False
+                    self.logger.info("Disabled KV-cache in vision encoder config")
+                    
+            # Enable gradient checkpointing in language model if available
+            if hasattr(self.language_model, "config"):
+                if hasattr(self.language_model.config, "gradient_checkpointing"):
+                    self.language_model.config.gradient_checkpointing = True
+                    self.logger.info("Enabled gradient checkpointing in language model config")
+                if hasattr(self.language_model.config, "use_cache"):
+                    self.language_model.config.use_cache = False
+                    self.logger.info("Disabled KV-cache in language model config")
+                    
+            # Manually enable gradient checkpointing on transformer modules if possible
+            if hasattr(self.model, "gradient_checkpointing_enable"):
+                self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+                self.logger.info("Manually enabled gradient checkpointing on model")
+            if hasattr(self.vision_encoder, "gradient_checkpointing_enable"):
+                self.vision_encoder.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+                self.logger.info("Manually enabled gradient checkpointing on vision encoder")
+            if hasattr(self.language_model, "gradient_checkpointing_enable"):
+                self.language_model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+                self.logger.info("Manually enabled gradient checkpointing on language model")
                 
-            # Disable gradient checkpointing in language model config
-            if (hasattr(self.language_model, "config") 
-                and hasattr(self.language_model.config, "gradient_checkpointing")):
-                self.language_model.config.gradient_checkpointing = False
-                self.logger.info("Disabled gradient checkpointing in language model config")
         except Exception as e:
-            self.logger.warning(f"Could not disable gradient checkpointing: {e}")
+            self.logger.warning(f"Could not configure gradient checkpointing: {e}")
         
         # Get hidden sizes for both encoders
         vision_hidden_size = 512  # Default fallback

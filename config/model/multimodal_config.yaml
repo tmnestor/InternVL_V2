@@ -32,7 +32,7 @@ data:
   val_dir: "data/multimodal/val/images"
   test_csv: "data/multimodal/test/metadata.csv"
   test_dir: "data/multimodal/test/images"
-  batch_size: 16
+  batch_size: 4  # Reduced from 16 to address OOM errors
   num_workers: 1
   image_size: 448  # InternVL2 default size
   augmentation: true
@@ -44,11 +44,13 @@ training:
   learning_rate: 1.0e-6  # Further reduced for improved stability
   weight_decay: 1.0e-4
   warmup_steps: 1000  # Increased warmup to improve initial stability
-  gradient_accumulation_steps: 1
+  gradient_accumulation_steps: 4  # Increased to maintain effective batch size
   flash_attention: false  # Disable Flash Attention since it's not available
   fp16: false  # Disable mixed precision training for better stability
   gradient_clip: 1.0  # Gradient clipping value
   torch_compile: false  # Enable/disable torch.compile optimization
+  memory_efficient: true  # Enable memory efficiency optimizations
+  low_cpu_mem_usage: true  # Reduce CPU memory usage
   
   # Multi-stage training settings
   three_stage:
