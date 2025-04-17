@@ -2,11 +2,12 @@
 
 # Model configuration
 model:
-  # Local model path (the ONLY way to load models in both environments)
-  name: "all-mpnet-base-v2"  # Model name (for logging only)
-  # custom_path: "/Users/tod/PretrainedLLM/all-mpnet-base-v2"  # Local testing path
-  custom_path: "/home/jovyan/nfs_share/models/huggingface/hub/all-mpnet-base-v2"  # Production path
+  # Use the language model from InternVL2 instead of a separate model
+  name: "InternVL2-language-model"
+  # Point to the InternVL2 model which contains the integrated language model
+  custom_path: "/home/jovyan/nfs_share/models/huggingface/hub/InternVL2_5-1B"
   use_custom_path: true  # ALWAYS TRUE - we only load from local paths
+  use_internvl_language_model: true  # Flag to indicate we should extract language model from InternVL2
   
   # Model architecture parameters
   hidden_size: 768

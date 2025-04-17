@@ -806,12 +806,17 @@ class InternVL2MultimodalModel(nn.Module):
                     self.logger.error(error_msg)
                     raise FileNotFoundError(error_msg)
                 
+                # Get use_internvl_language_model flag
+                use_internvl_lm = model_config.get("use_internvl_language_model", False)
+                self.logger.info(f"Using InternVL language model for question classifier: {use_internvl_lm}")
+                
                 # Initialize the question classifier
                 self.question_classifier = QuestionClassifier(
                     model_name=model_name,
                     hidden_size=hidden_size,
                     num_classes=num_classes,
-                    use_custom_path=use_custom_path
+                    use_custom_path=use_custom_path,
+                    use_internvl_language_model=use_internvl_lm
                 )
                 self.logger.info(f"Initialized question classifier with model: {model_name}")
             except Exception as e:
