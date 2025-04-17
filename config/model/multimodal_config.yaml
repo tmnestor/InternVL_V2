@@ -41,7 +41,7 @@ data:
 # Training configuration
 training:
   epochs: 20
-  learning_rate: 2.0e-5
+  learning_rate: 5.0e-6  # Reduced from 2.0e-5 to improve stability
   weight_decay: 1.0e-4
   warmup_steps: 500
   gradient_accumulation_steps: 1

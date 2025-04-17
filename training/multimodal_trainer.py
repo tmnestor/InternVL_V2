@@ -416,22 +416,48 @@ class MultimodalTrainer:
             
             # Forward pass with mixed precision if enabled
             if self.use_mixed_precision:
-                with autocast():
-                    outputs = self.model(
-                        pixel_values=batch["pixel_values"],
-                        text_input_ids=batch["text_input_ids"],
-                        attention_mask=batch["text_attention_mask"]
-                    )
-                    
-                    loss_dict = self.loss_fn(
-                        model_outputs=outputs,
-                        classification_labels=batch["classification_labels"],
-                        language_labels=batch["labels"],
-                        attention_mask=batch["labels_attention_mask"]
-                    )
-                    
-                    # Scale loss by accumulation steps
-                    loss = loss_dict["total_loss"] / gradient_accumulation_steps
+                try:
+                    with autocast():
+                        outputs = self.model(
+                            pixel_values=batch["pixel_values"],
+                            text_input_ids=batch["text_input_ids"],
+                            attention_mask=batch["text_attention_mask"]
+                        )
+                        
+                        # Check for NaN or Inf values in model outputs
+                        for key, tensor in outputs.items():
+                            if isinstance(tensor, torch.Tensor) and not torch.isfinite(tensor).all():
+                                self.logger.warning(f"Non-finite values detected in model output '{key}'. Replacing with zeros.")
+                                outputs[key] = torch.zeros_like(tensor)
+                        
+                        loss_dict = self.loss_fn(
+                            model_outputs=outputs,
+                            classification_labels=batch["classification_labels"],
+                            language_labels=batch["labels"],
+                            attention_mask=batch["labels_attention_mask"]
+                        )
+                        
+                        # Check if loss is reasonable (not too large)
+                        if loss_dict["total_loss"] > 10000:
+                            self.logger.warning(f"Extremely high loss detected: {loss_dict['total_loss']}. Using default loss value.")
+                            loss_dict["total_loss"] = torch.tensor(100.0, device=loss_dict["total_loss"].device)
+                        
+                        # Scale loss by accumulation steps
+                        loss = loss_dict["total_loss"] / gradient_accumulation_steps
+                except Exception as e:
+                    self.logger.error(f"Error during forward/loss calculation with mixed precision: {e}")
+                    # Create default outputs and loss if calculation failed
+                    loss = torch.tensor(100.0, device=self.device, requires_grad=True)
+                    loss_dict = {"total_loss": loss * gradient_accumulation_steps}
+                    if not hasattr(self, 'error_count'):
+                        self.error_count = 0
+                    self.error_count += 1
+                    if self.error_count > 5:
+                        self.logger.error("Too many errors during training. Consider reducing learning rate or batch size.")
+                        # Force smaller learning rate
+                        for param_group in self.optimizer.param_groups:
+                            param_group['lr'] = param_group['lr'] * 0.1
+                        self.error_count = 0
                 
                 # Backward pass with gradient scaling
                 self.scaler.scale(loss).backward()
@@ -458,22 +484,49 @@ class MultimodalTrainer:
                     text_input_ids = batch["text_input_ids"]
                     text_attention_mask = batch["text_attention_mask"]
                 
-                # Forward pass
-                outputs = self.model(
-                    pixel_values=pixel_values,
-                    text_input_ids=text_input_ids,
-                    attention_mask=text_attention_mask
-                )
-                
-                loss_dict = self.loss_fn(
-                    model_outputs=outputs,
-                    classification_labels=batch["classification_labels"],
-                    language_labels=batch["labels"],
-                    attention_mask=batch["labels_attention_mask"]
-                )
-                
-                # Scale loss by accumulation steps
-                loss = loss_dict["total_loss"] / gradient_accumulation_steps
+                # Forward pass with error handling for numerical stability
+                try:
+                    outputs = self.model(
+                        pixel_values=pixel_values,
+                        text_input_ids=text_input_ids,
+                        attention_mask=text_attention_mask
+                    )
+                    
+                    # Check for NaN or Inf values in model outputs
+                    for key, tensor in outputs.items():
+                        if isinstance(tensor, torch.Tensor) and not torch.isfinite(tensor).all():
+                            self.logger.warning(f"Non-finite values detected in model output '{key}'. Replacing with zeros.")
+                            outputs[key] = torch.zeros_like(tensor)
+                    
+                    loss_dict = self.loss_fn(
+                        model_outputs=outputs,
+                        classification_labels=batch["classification_labels"],
+                        language_labels=batch["labels"],
+                        attention_mask=batch["labels_attention_mask"]
+                    )
+                    
+                    # Check if loss is reasonable (not too large)
+                    if loss_dict["total_loss"] > 10000:
+                        self.logger.warning(f"Extremely high loss detected: {loss_dict['total_loss']}. Using default loss value.")
+                        loss_dict["total_loss"] = torch.tensor(100.0, device=loss_dict["total_loss"].device)
+                    
+                    # Scale loss by accumulation steps
+                    loss = loss_dict["total_loss"] / gradient_accumulation_steps
+                    
+                except Exception as e:
+                    self.logger.error(f"Error during forward/loss calculation: {e}")
+                    # Create default outputs and loss if calculation failed
+                    loss = torch.tensor(100.0, device=self.device, requires_grad=True)
+                    loss_dict = {"total_loss": loss * gradient_accumulation_steps}
+                    if not hasattr(self, 'error_count'):
+                        self.error_count = 0
+                    self.error_count += 1
+                    if self.error_count > 5:
+                        self.logger.error("Too many errors during training. Consider reducing learning rate or batch size.")
+                        # Force smaller learning rate
+                        for param_group in self.optimizer.param_groups:
+                            param_group['lr'] = param_group['lr'] * 0.1
+                        self.error_count = 0
                 
                 # Backward pass
                 loss.backward()

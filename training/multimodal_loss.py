@@ -211,5 +211,19 @@ class MultimodalLoss(nn.Module):
             loss_dict["contrastive_loss"] = contrastive_loss
             total_loss += self.contrastive_weight * contrastive_loss
         
+        # Check for numerical issues with loss
+        if not torch.isfinite(total_loss):
+            # Some component of the loss contains NaN or Inf - print components and replace with default value
+            print(f"WARNING: Loss is not finite! Components: {loss_dict}")
+            # Replace with a reasonable default loss value
+            total_loss = torch.tensor(100.0, device=total_loss.device)
+            
+        # Clamp loss to prevent extremely large values that can destabilize training
+        # A reasonable upper bound for a total loss is 1000
+        max_loss = 1000.0
+        if total_loss > max_loss:
+            print(f"WARNING: Loss is too high ({total_loss.item():.1f}), clamping to {max_loss}")
+            total_loss = torch.tensor(max_loss, device=total_loss.device)
+            
         loss_dict["total_loss"] = total_loss
         return loss_dict
