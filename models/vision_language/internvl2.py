@@ -809,13 +809,25 @@ class InternVL2MultimodalModel(nn.Module):
                 use_internvl_lm = model_config.get("use_internvl_language_model", False)
                 self.logger.info(f"Using InternVL language model for question classifier: {use_internvl_lm}")
                 
-                # Initialize the question classifier
+                # Directly construct a question classifier that uses the InternVL2 language model and tokenizer
+                # Instead of loading a separate model, we'll use components we already have in memory
+                
+                from models.classification.question_classifier import QuestionClassifier
+                
+                # Create a classifier using InternVL2's language model and tokenizer
+                self.logger.info("Creating question classifier using InternVL2's language model and tokenizer")
+                
+                # Instantiate with InternVL2's tokenizer and language model
                 self.question_classifier = QuestionClassifier(
-                    model_name=model_name,
+                    model_name="internvl2-internal",  # This is just a name, not actually used for loading
                     hidden_size=hidden_size,
                     num_classes=num_classes,
-                    use_custom_path=use_custom_path,
-                    use_internvl_language_model=use_internvl_lm
+                    # Pass the actual tokenizer and language model objects
+                    encoder=self.language_model,  # Use the same language model
+                    tokenizer=self.tokenizer,     # Use the same tokenizer
+                    # Since we're providing models directly, these flags are ignored
+                    use_custom_path=False,
+                    use_existing_models=True      # Flag to indicate we're providing models directly
                 )
                 
                 # Ensure all parameters are set to require gradients 
@@ -1074,26 +1086,16 @@ class InternVL2MultimodalModel(nn.Module):
                             text_input_ids, skip_special_tokens=True
                         )
                         
-                        # Process question with classifier's tokenizer for exact match with model vocabulary 
-                        question_inputs = self.question_classifier.tokenizer(
-                            question_texts, 
-                            padding="max_length",
-                            truncation=True,
-                            max_length=128,
-                            return_tensors="pt"
-                        ).to(text_input_ids.device)
+                        # Since we're using the same tokenizer, we can just reuse the original text_input_ids
+                        # No need to re-tokenize, which avoids token ID mismatches entirely
                         
-                        # Check if tokens are within vocabulary range
-                        max_token_id = question_inputs.input_ids.max().item()
-                        if max_token_id >= vocab_size:
-                            self.logger.error(f"Token ID out of vocabulary range: max_id={max_token_id}, vocab_size={vocab_size}")
-                            raise IndexError(f"Token ID out of range: {max_token_id} >= {vocab_size}")
-                        
-                        # Forward pass through classifier
+                        # Forward pass through classifier using the original input IDs and mask
                         question_type_logits = self.question_classifier(
-                            question_inputs.input_ids,
-                            question_inputs.attention_mask
+                            text_input_ids,
+                            attention_mask
                         )
+                        
+                        self.logger.info("Using shared InternVL2 tokenizer and language model components")
                 
                 # Extract document details if detail extractor exists
                 detail_logits = None

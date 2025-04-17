@@ -27,6 +27,9 @@ class QuestionClassifier(nn.Module):
         device: str = None,
         use_custom_path: bool = False,  # Disabled custom path by default
         use_internvl_language_model: bool = False,  # Whether to extract language model from InternVL
+        encoder = None,  # Option to pass in a pre-loaded encoder model
+        tokenizer = None,  # Option to pass in a pre-loaded tokenizer
+        use_existing_models: bool = False,  # Flag to indicate that we're using provided models
         **kwargs  # Additional arguments
     ):
         """
@@ -48,129 +51,140 @@ class QuestionClassifier(nn.Module):
         self.use_internvl_language_model = use_internvl_language_model
         logger.info(f"Using InternVL language model: {use_internvl_language_model}")
         
-        # The model_name parameter should contain the path from the config file when use_custom_path is True
-        # No hard-coded paths - use only what's provided in the config
-        
-        # Determine the model path to use
-        if use_custom_path:
-            # When use_custom_path is True, model_name should be a valid path from config
-            if os.path.exists(model_name):
-                logger.info(f"Using model from config-provided path: {model_name}")
-                model_path = model_name
-            else:
-                # Path doesn't exist - this is a fatal error since we're expecting a valid path
-                error_msg = f"Model path from config does not exist: {model_name}"
-                logger.error(error_msg)
-                raise FileNotFoundError(error_msg)
+        # Option 1: Use provided encoder and tokenizer (direct model sharing)
+        if use_existing_models and encoder is not None and tokenizer is not None:
+            logger.info("Using provided encoder and tokenizer (direct model sharing)")
+            self.encoder = encoder
+            self.tokenizer = tokenizer
+            logger.info(f"Using shared encoder of type: {type(self.encoder).__name__}")
+            logger.info(f"Using shared tokenizer of type: {type(self.tokenizer).__name__}")
+            
+            # No need to load anything - we're using the provided models
+            
+        # Option 2: Load models according to provided paths or names
         else:
-            # Using regular HuggingFace model (should not happen in production)
-            logger.warning(f"Using HuggingFace model by name (not recommended): {model_name}")
-            model_path = model_name
-        
-        # Load tokenizer FIRST - this ensures consistent vocabularies
-        if use_custom_path:
-            # Load from local path with appropriate settings
-            try:
-                logger.info(f"Loading tokenizer from custom path: {model_path}")
-                self.tokenizer = AutoTokenizer.from_pretrained(
-                    model_path,
-                    local_files_only=True,
-                    trust_remote_code=True
-                )
-                logger.info("Successfully loaded tokenizer from custom path")
-            except Exception as e:
-                # Don't silently fail - raise the error
-                logger.error(f"Failed to load tokenizer from custom path '{model_path}': {e}")
-                raise RuntimeError(f"Failed to load tokenizer from custom path '{model_path}': {e}")
-        else:
-            # Regular loading from HuggingFace
-            try:
-                logger.info(f"Loading tokenizer from HuggingFace: {model_name}")
-                self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-                logger.info(f"Successfully loaded tokenizer: {model_name}")
-            except Exception as e:
-                # Don't silently fail - raise the error
-                logger.error(f"Failed to load tokenizer '{model_name}' from HuggingFace: {e}")
-                raise RuntimeError(f"Failed to load tokenizer '{model_name}' from HuggingFace: {e}")
-        
-        # Check for internvl flag in config
-        use_internvl_language_model = getattr(self, 'use_internvl_language_model', False)
-        if not hasattr(self, 'use_internvl_language_model'):
-            # Try to get from kwargs
-            use_internvl_language_model = kwargs.get('use_internvl_language_model', False)
-            logger.info(f"Using internvl_language_model flag from kwargs: {use_internvl_language_model}")
-        
-        # Initialize encoder with appropriate settings
-        if use_custom_path:
-            # Load from local path with appropriate settings
-            try:
-                logger.info(f"Loading model from custom path: {model_path}")
-                # Check if directory exists
-                if not os.path.exists(model_path):
-                    raise FileNotFoundError(f"Custom model path does not exist: {model_path}")
-                
-                # Check if config.json exists
-                if not os.path.exists(os.path.join(model_path, "config.json")):
-                    raise FileNotFoundError(f"No config.json found in custom model path: {model_path}")
-                
-                # If using InternVL language model, we need to extract it from the full model
-                if use_internvl_language_model:
-                    logger.info("Loading InternVL2 model to extract language model component...")
-                    from transformers import AutoModel
-                    
-                    # First load the full InternVL2 model
-                    full_model = AutoModel.from_pretrained(
-                        model_path,
-                        local_files_only=True,
-                        trust_remote_code=True
-                    )
-                    
-                    # Try to extract the language model component
-                    if hasattr(full_model, "llm"):
-                        self.encoder = full_model.llm
-                        logger.info("Using full_model.llm as language model for classifier")
-                    elif hasattr(full_model, "language_model"):
-                        self.encoder = full_model.language_model
-                        logger.info("Using full_model.language_model as language model for classifier")
-                    elif hasattr(full_model, "text_model"):
-                        self.encoder = full_model.text_model
-                        logger.info("Using full_model.text_model as language model for classifier")
-                    elif hasattr(full_model, "LLM"):
-                        self.encoder = full_model.LLM
-                        logger.info("Using full_model.LLM as language model for classifier")
-                    elif hasattr(full_model, "llama"):
-                        self.encoder = full_model.llama
-                        logger.info("Using full_model.llama as language model for classifier")
-                    else:
-                        # If we can't find the language model, log all attributes to help debug
-                        all_attributes = [attr for attr in dir(full_model) if not attr.startswith('_')]
-                        logger.info(f"Model attributes: {all_attributes}")
-                        
-                        # Fall back to using the entire model
-                        logger.warning("Could not extract language model. Using full model instead.")
-                        self.encoder = full_model
+            # The model_name parameter should contain the path from the config file when use_custom_path is True
+            # No hard-coded paths - use only what's provided in the config
+            
+            # Determine the model path to use
+            if use_custom_path:
+                # When use_custom_path is True, model_name should be a valid path from config
+                if os.path.exists(model_name):
+                    logger.info(f"Using model from config-provided path: {model_name}")
+                    model_path = model_name
                 else:
-                    # Regular loading - not using InternVL language model
-                    self.encoder = AutoModel.from_pretrained(
+                    # Path doesn't exist - this is a fatal error since we're expecting a valid path
+                    error_msg = f"Model path from config does not exist: {model_name}"
+                    logger.error(error_msg)
+                    raise FileNotFoundError(error_msg)
+            else:
+                # Using regular HuggingFace model (should not happen in production)
+                logger.warning(f"Using HuggingFace model by name (not recommended): {model_name}")
+                model_path = model_name
+            
+            # Load tokenizer FIRST - this ensures consistent vocabularies
+            if use_custom_path:
+                # Load from local path with appropriate settings
+                try:
+                    logger.info(f"Loading tokenizer from custom path: {model_path}")
+                    self.tokenizer = AutoTokenizer.from_pretrained(
                         model_path,
                         local_files_only=True,
                         trust_remote_code=True
                     )
+                    logger.info("Successfully loaded tokenizer from custom path")
+                except Exception as e:
+                    # Don't silently fail - raise the error
+                    logger.error(f"Failed to load tokenizer from custom path '{model_path}': {e}")
+                    raise RuntimeError(f"Failed to load tokenizer from custom path '{model_path}': {e}")
+            else:
+                # Regular loading from HuggingFace
+                try:
+                    logger.info(f"Loading tokenizer from HuggingFace: {model_name}")
+                    self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+                    logger.info(f"Successfully loaded tokenizer: {model_name}")
+                except Exception as e:
+                    # Don't silently fail - raise the error
+                    logger.error(f"Failed to load tokenizer '{model_name}' from HuggingFace: {e}")
+                    raise RuntimeError(f"Failed to load tokenizer '{model_name}' from HuggingFace: {e}")
+            
+            # Check for internvl flag in config
+            if not hasattr(self, 'use_internvl_language_model'):
+                # Try to get from kwargs
+                use_internvl_language_model = kwargs.get('use_internvl_language_model', False)
+                logger.info(f"Using internvl_language_model flag from kwargs: {use_internvl_language_model}")
+            
+            # Initialize encoder with appropriate settings
+            if use_custom_path:
+                # Load from local path with appropriate settings
+                try:
+                    logger.info(f"Loading model from custom path: {model_path}")
+                    # Check if directory exists
+                    if not os.path.exists(model_path):
+                        raise FileNotFoundError(f"Custom model path does not exist: {model_path}")
                     
-                logger.info(f"Successfully loaded model from custom path. Type: {type(self.encoder).__name__}")
-                
-            except Exception as e:
-                logger.error(f"Failed to load model from custom path '{model_path}': {e}")
-                raise RuntimeError(f"Failed to load model from custom path '{model_path}': {e}")
-        else:
-            # Regular loading from HuggingFace
-            try:
-                logger.info(f"Loading model from HuggingFace: {model_name}")
-                self.encoder = AutoModel.from_pretrained(model_name)
-                logger.info(f"Successfully loaded model from HuggingFace. Type: {type(self.encoder).__name__}")
-            except Exception as e:
-                logger.error(f"Failed to load model '{model_name}' from HuggingFace: {e}")
-                raise RuntimeError(f"Failed to load model '{model_name}' from HuggingFace: {e}")
+                    # Check if config.json exists
+                    if not os.path.exists(os.path.join(model_path, "config.json")):
+                        raise FileNotFoundError(f"No config.json found in custom model path: {model_path}")
+                    
+                    # If using InternVL language model, we need to extract it from the full model
+                    if use_internvl_language_model:
+                        logger.info("Loading InternVL2 model to extract language model component...")
+                        from transformers import AutoModel
+                        
+                        # First load the full InternVL2 model
+                        full_model = AutoModel.from_pretrained(
+                            model_path,
+                            local_files_only=True,
+                            trust_remote_code=True
+                        )
+                        
+                        # Try to extract the language model component
+                        if hasattr(full_model, "llm"):
+                            self.encoder = full_model.llm
+                            logger.info("Using full_model.llm as language model for classifier")
+                        elif hasattr(full_model, "language_model"):
+                            self.encoder = full_model.language_model
+                            logger.info("Using full_model.language_model as language model for classifier")
+                        elif hasattr(full_model, "text_model"):
+                            self.encoder = full_model.text_model
+                            logger.info("Using full_model.text_model as language model for classifier")
+                        elif hasattr(full_model, "LLM"):
+                            self.encoder = full_model.LLM
+                            logger.info("Using full_model.LLM as language model for classifier")
+                        elif hasattr(full_model, "llama"):
+                            self.encoder = full_model.llama
+                            logger.info("Using full_model.llama as language model for classifier")
+                        else:
+                            # If we can't find the language model, log all attributes to help debug
+                            all_attributes = [attr for attr in dir(full_model) if not attr.startswith('_')]
+                            logger.info(f"Model attributes: {all_attributes}")
+                            
+                            # Fall back to using the entire model
+                            logger.warning("Could not extract language model. Using full model instead.")
+                            self.encoder = full_model
+                    else:
+                        # Regular loading - not using InternVL language model
+                        self.encoder = AutoModel.from_pretrained(
+                            model_path,
+                            local_files_only=True,
+                            trust_remote_code=True
+                        )
+                        
+                    logger.info(f"Successfully loaded model from custom path. Type: {type(self.encoder).__name__}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to load model from custom path '{model_path}': {e}")
+                    raise RuntimeError(f"Failed to load model from custom path '{model_path}': {e}")
+            else:
+                # Regular loading from HuggingFace
+                try:
+                    logger.info(f"Loading model from HuggingFace: {model_name}")
+                    self.encoder = AutoModel.from_pretrained(model_name)
+                    logger.info(f"Successfully loaded model from HuggingFace. Type: {type(self.encoder).__name__}")
+                except Exception as e:
+                    logger.error(f"Failed to load model '{model_name}' from HuggingFace: {e}")
+                    raise RuntimeError(f"Failed to load model '{model_name}' from HuggingFace: {e}")
         
         # Classification head
         self.classifier = nn.Sequential(
