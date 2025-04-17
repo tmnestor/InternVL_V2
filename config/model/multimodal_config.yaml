@@ -7,9 +7,12 @@ log_level: INFO
 
 # Model configuration
 model:
+  # For InternVL2 model
   # pretrained_path: "$HOME/nfs_share/models/huggingface/hub/InternVL2_5-1B"
-  pretrained_path: "/Users/tod/PretrainedLLM/InternVL2_5-1B"
-  # pretrained_path: "/Users/tod/PretrainedLLM/all-mpnet-base-v2"
+  # pretrained_path: "/Users/tod/PretrainedLLM/InternVL2_5-1B"
+  
+  # Using InternVL2 model - we need a model with vision encoder and language encoder/decoder
+  pretrained_path: "/home/jovyan/nfs_share/models/huggingface/hub/InternVL2_5-1B"
   multimodal: true  # Enable multimodal mode
   num_classes: 3  # 0, 1, 2+ receipts for classification task
   use_8bit: false  # Disable 8-bit quantization for better accuracy

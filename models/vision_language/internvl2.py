@@ -552,24 +552,58 @@ class InternVL2MultimodalModel(nn.Module):
                     self.language_model = self.model.text_model
                     self.logger.info("Using text_model for text encoding")
                 except:
-                    # If language model component was deleted, restore it
-                    self.logger.warning("Language model not found. Loading a new language model instance.")
-                    try:
-                        # Try to get a compatible language model from the hub
-                        from transformers import AutoModelForCausalLM
-                        self.language_model = AutoModelForCausalLM.from_pretrained(
-                            pretrained_path,
-                            trust_remote_code=True,
-                            local_files_only=True,
-                            # device_map="auto"  # Commented for macOS development - re-enable for Linux GPU
-                        )
-                        self.logger.info("Loaded language model successfully.")
-                    except Exception as e:
-                        self.logger.error(f"Error loading language model: {e}")
-                        raise ValueError(
-                            "Could not instantiate a language model. "
-                            "Please ensure the model has a language component."
-                        )
+                    # Check if we're using an MPNet or other standalone encoder model
+                    import inspect
+                    model_type = type(self.model).__name__
+                    self.logger.info(f"Model is of type: {model_type}")
+                    
+                    if model_type == "MPNetModel" or hasattr(self.model, "encoder"):
+                        # For encoder-only models like MPNet - use the model itself as the language model
+                        self.logger.info(f"Using {model_type} directly as language model")
+                        self.language_model = self.model
+                    else:
+                        # If language model component was deleted, restore it
+                        self.logger.warning("Language model not found. Loading a new language model instance.")
+                        try:
+                            # Try to get a compatible language model from the hub
+                            # First detect the model type to determine which class to use
+                            if hasattr(self.model, "config") and hasattr(self.model.config, "model_type"):
+                                model_type = self.model.config.model_type
+                                self.logger.info(f"Detected model type from config: {model_type}")
+                                
+                                if model_type in ["mpnet", "bert", "roberta", "electra"]:
+                                    # These are encoder-only models
+                                    from transformers import AutoModel
+                                    self.language_model = AutoModel.from_pretrained(
+                                        pretrained_path,
+                                        trust_remote_code=True,
+                                        local_files_only=True
+                                    )
+                                    self.logger.info(f"Loaded {model_type} as language model with AutoModel")
+                                else:
+                                    # Default to causal LM
+                                    from transformers import AutoModelForCausalLM
+                                    self.language_model = AutoModelForCausalLM.from_pretrained(
+                                        pretrained_path,
+                                        trust_remote_code=True,
+                                        local_files_only=True
+                                    )
+                                    self.logger.info(f"Loaded language model as AutoModelForCausalLM")
+                            else:
+                                # No config type available, use AutoModel as fallback
+                                from transformers import AutoModel
+                                self.language_model = AutoModel.from_pretrained(
+                                    pretrained_path,
+                                    trust_remote_code=True,
+                                    local_files_only=True
+                                )
+                                self.logger.info("Loaded language model as generic AutoModel")
+                        except Exception as e:
+                            self.logger.error(f"Error loading language model: {e}")
+                            raise ValueError(
+                                "Could not instantiate a language model. "
+                                "Please ensure the model has a language component."
+                            )
         
         # Disable gradient checkpointing for model components
         try:
@@ -776,22 +810,67 @@ class InternVL2MultimodalModel(nn.Module):
                     self.language_model.gradient_checkpointing = True
                 
                 # Try to reduce language model memory usage
-                text_outputs = self.language_model(
-                    input_ids=text_input_ids,
-                    attention_mask=attention_mask,
-                    output_hidden_states=True,
-                    return_dict=True,
-                    use_cache=False  # Disable KV caching to save memory during training
-                )
+                # Check the type of language model to determine the right arguments
+                model_type = type(self.language_model).__name__
+                self.logger.debug(f"Language model type: {model_type}")
                 
-                # Extract text embeddings
+                if model_type == "MPNetModel" or model_type.endswith(("BertModel", "RobertaModel", "ElectraModel")):
+                    # For encoder-only models, don't use use_cache parameter
+                    text_outputs = self.language_model(
+                        input_ids=text_input_ids,
+                        attention_mask=attention_mask,
+                        output_hidden_states=True,
+                        return_dict=True
+                    )
+                else:
+                    # For decoder models, can use use_cache
+                    try:
+                        text_outputs = self.language_model(
+                            input_ids=text_input_ids,
+                            attention_mask=attention_mask,
+                            output_hidden_states=True,
+                            return_dict=True,
+                            use_cache=False  # Disable KV caching to save memory during training
+                        )
+                    except TypeError:
+                        # Fallback if use_cache not supported
+                        text_outputs = self.language_model(
+                            input_ids=text_input_ids,
+                            attention_mask=attention_mask,
+                            output_hidden_states=True,
+                            return_dict=True
+                        )
+                
+                # Extract text embeddings - handle all possible output formats
                 if hasattr(text_outputs, 'last_hidden_state'):
                     text_embeds = text_outputs.last_hidden_state
-                elif hasattr(text_outputs, 'hidden_states'):
-                    text_embeds = text_outputs.hidden_states[-1]
-                else:
+                    self.logger.debug("Using text_outputs.last_hidden_state for text embeddings")
+                elif hasattr(text_outputs, 'hidden_states') and text_outputs.hidden_states is not None:
+                    # For models that return hidden_states as a list/tuple
+                    if isinstance(text_outputs.hidden_states, (list, tuple)):
+                        text_embeds = text_outputs.hidden_states[-1]  # Use last layer
+                        self.logger.debug("Using text_outputs.hidden_states[-1] for text embeddings")
+                    else:
+                        text_embeds = text_outputs.hidden_states
+                        self.logger.debug("Using text_outputs.hidden_states directly for text embeddings")
+                elif isinstance(text_outputs, dict) and 'hidden_states' in text_outputs:
                     # Get the last element from hidden states tuple
-                    text_embeds = text_outputs['hidden_states'][-1]
+                    if isinstance(text_outputs['hidden_states'], (list, tuple)):
+                        text_embeds = text_outputs['hidden_states'][-1]
+                        self.logger.debug("Using text_outputs['hidden_states'][-1] for text embeddings")
+                    else:
+                        text_embeds = text_outputs['hidden_states']
+                        self.logger.debug("Using text_outputs['hidden_states'] directly for text embeddings")
+                else:
+                    # Last resort - try direct extraction
+                    if isinstance(text_outputs, tuple) and len(text_outputs) > 0:
+                        # First element is often the output embeddings in HF models
+                        text_embeds = text_outputs[0]
+                        self.logger.debug("Using text_outputs[0] for text embeddings")
+                    else:
+                        # Use text_outputs directly if nothing else works
+                        text_embeds = text_outputs
+                        self.logger.warning("Using text_outputs directly - this may cause issues")
                 
                 # Clear text_outputs to free memory early
                 del text_outputs
