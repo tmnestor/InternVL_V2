@@ -10,6 +10,111 @@ This project extends the InternVL vision-language model for document analysis fo
 2. **Synthetic Data Generation**: Create realistic synthetic receipts and tax documents for training
 3. **Template-based Response Generation**: Use structured templates to generate consistent responses
 
+## System Architecture
+
+### Overall System Architecture
+
+```mermaid
+graph TD
+    User([User]) --> |Question + Image| InputHandler[Input Handler]
+    InputHandler --> QuestionClassifier[Question Classifier]
+    InputHandler --> InternVL2[InternVL2 Vision Encoder]
+    
+    QuestionClassifier --> |Question Type| ResponseGen[Response Generator]
+    InternVL2 --> |Visual Features| ResponseGen
+    
+    ResponseGen --> |Question Type: DOCUMENT_TYPE| DocType[Document Type Module]
+    ResponseGen --> |Question Type: COUNTING| Counting[Counting Module]
+    ResponseGen --> |Question Type: DETAIL_EXTRACTION| Details[Detail Extraction Module]
+    ResponseGen --> |Question Type: PAYMENT_INFO| Payment[Payment Info Module]
+    ResponseGen --> |Question Type: TAX_INFO| Tax[Tax Info Module]
+    
+    DocType --> Response[Response Formatter]
+    Counting --> Response
+    Details --> Response
+    Payment --> Response
+    Tax --> Response
+    
+    Response --> User
+    
+    style InternVL2 fill:#f9d5e5,stroke:#333,stroke-width:2px
+    style QuestionClassifier fill:#eeeeee,stroke:#333,stroke-width:2px
+    style ResponseGen fill:#d5f9e8,stroke:#333,stroke-width:2px
+```
+
+### Training Pipeline Architecture
+
+```mermaid
+graph LR
+    DataGen[Data Generation] --> |Synthetic Documents| RawData[Raw Data]
+    RawData --> |Split| TrainData[Training Data]
+    RawData --> |Split| ValData[Validation Data]
+    RawData --> |Split| TestData[Test Data]
+    
+    TrainData --> ClassifierTraining[Question Classifier Training]
+    ValData --> ClassifierTraining
+    ClassifierTraining --> |Enhanced Classifier| Models[(Trained Models)]
+    
+    TrainData --> MultimodalTraining[Multimodal Model Training]
+    ValData --> MultimodalTraining
+    MultimodalTraining --> |InternVL2 Model| Models
+    
+    Models --> |Load Models| Evaluation[Evaluation]
+    TestData --> Evaluation
+    
+    Orchestrator[Training Orchestrator] --> |Manage| MultimodalTraining
+    Monitor[Training Monitor] --> |Visualize| MultimodalTraining
+    
+    subgraph Training Components
+        ClassifierTraining
+        MultimodalTraining
+        Orchestrator
+        Monitor
+    end
+    
+    style DataGen fill:#f9d5e5,stroke:#333,stroke-width:2px
+    style MultimodalTraining fill:#d5f9e8,stroke:#333,stroke-width:2px
+    style ClassifierTraining fill:#eeeeee,stroke:#333,stroke-width:2px
+```
+
+### Question Classification Flow
+
+```mermaid
+flowchart TD
+    Input[User Question] --> Tokenizer[Tokenizer]
+    Tokenizer --> BERT[Language Model Encoder]
+    BERT --> |Encoded Text| Classifier[Neural Classifier]
+    Classifier --> |Logits| SoftMax[Softmax Layer]
+    SoftMax --> |Probability Distribution| Class[Question Type]
+    Class --> |Route to Appropriate Handler| Handler[Response Generator]
+    
+    style BERT fill:#f9d5e5,stroke:#333,stroke-width:2px
+    style Classifier fill:#d5f9e8,stroke:#333,stroke-width:2px
+```
+
+### Multimodal Processing Architecture
+
+```mermaid
+graph TD
+    Image[Input Image] --> |Preprocess| VisionEncoder[Vision Encoder]
+    Question[Input Question] --> |Tokenize| TextEncoder[Text Encoder]
+    
+    VisionEncoder --> |Visual Features| Fusion[Cross-Modal Fusion]
+    TextEncoder --> |Text Features| Fusion
+    
+    Fusion --> |Classification Task| Classifier[Document Classifier]
+    Fusion --> |Generation Task| Generator[Text Generator]
+    Fusion --> |Counting Task| Counter[Receipt Counter]
+    
+    Classifier --> |Classification Output| Output[Model Output]
+    Generator --> |Generation Output| Output
+    Counter --> |Counting Output| Output
+    
+    style VisionEncoder fill:#f9d5e5,stroke:#333,stroke-width:2px
+    style TextEncoder fill:#eeeeee,stroke:#333,stroke-width:2px
+    style Fusion fill:#d5f9e8,stroke:#333,stroke-width:2px
+```
+
 ## Directory Structure
 
 The project is organized into the following structure:
