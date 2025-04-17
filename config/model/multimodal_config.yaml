@@ -41,9 +41,9 @@ data:
 # Training configuration
 training:
   epochs: 20
-  learning_rate: 5.0e-6  # Reduced from 2.0e-5 to improve stability
+  learning_rate: 1.0e-6  # Further reduced for improved stability
   weight_decay: 1.0e-4
-  warmup_steps: 500
+  warmup_steps: 1000  # Increased warmup to improve initial stability
   gradient_accumulation_steps: 1
   flash_attention: false  # Disable Flash Attention since it's not available
   fp16: false  # Disable mixed precision training for better stability

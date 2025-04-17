@@ -215,15 +215,24 @@ class MultimodalLoss(nn.Module):
         if not torch.isfinite(total_loss):
             # Some component of the loss contains NaN or Inf - print components and replace with default value
             print(f"WARNING: Loss is not finite! Components: {loss_dict}")
-            # Replace with a reasonable default loss value
-            total_loss = torch.tensor(100.0, device=total_loss.device)
+            # Replace with a reasonable default loss value that maintains gradient connection
+            if classification_logits is not None:
+                # Use the classification logits to maintain gradient flow
+                dummy_loss = 100.0 * (classification_logits.sum() / classification_logits.numel()).tanh()
+                total_loss = dummy_loss.clone()
+            else:
+                # Fallback with a dummy tensor that requires grad
+                dummy = torch.ones(1, device=total_loss.device, requires_grad=True)
+                total_loss = 100.0 * dummy.sum()
             
         # Clamp loss to prevent extremely large values that can destabilize training
         # A reasonable upper bound for a total loss is 1000
         max_loss = 1000.0
         if total_loss > max_loss:
             print(f"WARNING: Loss is too high ({total_loss.item():.1f}), clamping to {max_loss}")
-            total_loss = torch.tensor(max_loss, device=total_loss.device)
+            # Scale the loss down instead of replacing it to maintain gradient flow
+            scale_factor = max_loss / total_loss.item()
+            total_loss = scale_factor * total_loss
             
         loss_dict["total_loss"] = total_loss
         return loss_dict

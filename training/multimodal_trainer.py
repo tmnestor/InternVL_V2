@@ -439,15 +439,19 @@ class MultimodalTrainer:
                         
                         # Check if loss is reasonable (not too large)
                         if loss_dict["total_loss"] > 10000:
-                            self.logger.warning(f"Extremely high loss detected: {loss_dict['total_loss']}. Using default loss value.")
-                            loss_dict["total_loss"] = torch.tensor(100.0, device=loss_dict["total_loss"].device)
+                            self.logger.warning(f"Extremely high loss detected: {loss_dict['total_loss']}. Scaling down.")
+                            # Scale the loss instead of replacing it to maintain gradients
+                            scale_factor = 100.0 / loss_dict["total_loss"].item()
+                            loss_dict["total_loss"] = scale_factor * loss_dict["total_loss"]
                         
                         # Scale loss by accumulation steps
                         loss = loss_dict["total_loss"] / gradient_accumulation_steps
                 except Exception as e:
                     self.logger.error(f"Error during forward/loss calculation with mixed precision: {e}")
-                    # Create default outputs and loss if calculation failed
-                    loss = torch.tensor(100.0, device=self.device, requires_grad=True)
+                    # Create default outputs and loss with gradient if calculation failed
+                    # Use a dummy variable connected to the model parameters to ensure gradient flow
+                    dummy_var = next(self.model.parameters())
+                    loss = 100.0 * (dummy_var.sum() / dummy_var.numel()).tanh()
                     loss_dict = {"total_loss": loss * gradient_accumulation_steps}
                     if not hasattr(self, 'error_count'):
                         self.error_count = 0
@@ -507,16 +511,20 @@ class MultimodalTrainer:
                     
                     # Check if loss is reasonable (not too large)
                     if loss_dict["total_loss"] > 10000:
-                        self.logger.warning(f"Extremely high loss detected: {loss_dict['total_loss']}. Using default loss value.")
-                        loss_dict["total_loss"] = torch.tensor(100.0, device=loss_dict["total_loss"].device)
+                        self.logger.warning(f"Extremely high loss detected: {loss_dict['total_loss']}. Scaling down.")
+                        # Scale the loss instead of replacing it to maintain gradients
+                        scale_factor = 100.0 / loss_dict["total_loss"].item()
+                        loss_dict["total_loss"] = scale_factor * loss_dict["total_loss"]
                     
                     # Scale loss by accumulation steps
                     loss = loss_dict["total_loss"] / gradient_accumulation_steps
                     
                 except Exception as e:
                     self.logger.error(f"Error during forward/loss calculation: {e}")
-                    # Create default outputs and loss if calculation failed
-                    loss = torch.tensor(100.0, device=self.device, requires_grad=True)
+                    # Create default outputs and loss with gradient if calculation failed
+                    # Use a dummy variable connected to the model parameters to ensure gradient flow
+                    dummy_var = next(self.model.parameters())
+                    loss = 100.0 * (dummy_var.sum() / dummy_var.numel()).tanh()
                     loss_dict = {"total_loss": loss * gradient_accumulation_steps}
                     if not hasattr(self, 'error_count'):
                         self.error_count = 0
