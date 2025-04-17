@@ -11,7 +11,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
-from transformers import AutoConfig, AutoModel, AutoTokenizer
+import inspect
+from transformers import (
+    AutoConfig, 
+    AutoModel, 
+    AutoModelForCausalLM,
+    AutoTokenizer
+)
 
 from models.components.projection_head import ClassificationHead, CrossAttention, ResponseGenerator
 
@@ -553,7 +559,6 @@ class InternVL2MultimodalModel(nn.Module):
                     self.logger.info("Using text_model for text encoding")
                 except:
                     # Check if we're using an MPNet or other standalone encoder model
-                    import inspect
                     model_type = type(self.model).__name__
                     self.logger.info(f"Model is of type: {model_type}")
                     
@@ -573,7 +578,6 @@ class InternVL2MultimodalModel(nn.Module):
                                 
                                 if model_type in ["mpnet", "bert", "roberta", "electra"]:
                                     # These are encoder-only models
-                                    from transformers import AutoModel
                                     self.language_model = AutoModel.from_pretrained(
                                         pretrained_path,
                                         trust_remote_code=True,
@@ -582,7 +586,6 @@ class InternVL2MultimodalModel(nn.Module):
                                     self.logger.info(f"Loaded {model_type} as language model with AutoModel")
                                 else:
                                     # Default to causal LM
-                                    from transformers import AutoModelForCausalLM
                                     self.language_model = AutoModelForCausalLM.from_pretrained(
                                         pretrained_path,
                                         trust_remote_code=True,
@@ -591,7 +594,6 @@ class InternVL2MultimodalModel(nn.Module):
                                     self.logger.info(f"Loaded language model as AutoModelForCausalLM")
                             else:
                                 # No config type available, use AutoModel as fallback
-                                from transformers import AutoModel
                                 self.language_model = AutoModel.from_pretrained(
                                     pretrained_path,
                                     trust_remote_code=True,
