@@ -319,8 +319,8 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate multimodal receipt counter")
     parser.add_argument("--model-path", type=str, required=True,
                         help="Path to trained model checkpoint")
-    parser.add_argument("--config", type=str, default="config/multimodal_config.yaml",
-                        help="Path to model configuration")
+    parser.add_argument("--config", type=str, default="legacy/config/model/multimodal_config.yaml",
+                        help="Path to model configuration (Legacy approach - consider using unified_multimodal instead)")
     parser.add_argument("--output-dir", type=str, default="results/multimodal",
                         help="Directory to save evaluation results")
     parser.add_argument("--image-path", type=str, default=None,

@@ -479,14 +479,7 @@ class InternVL2Trainer:
                 "history": self.history
             }
             
-            # Save the checkpoint
-            if not self.config["output"].get("save_best_only", False) or is_best:
-                self.logger.info(f"Saving checkpoint for epoch {epoch}...")
-                checkpoint_path = checkpoint_dir / f"model_epoch_{epoch}.pt"
-                torch.save(checkpoint, checkpoint_path)
-                self.logger.info(f"Checkpoint saved to {checkpoint_path}")
-            
-            # Save best model
+            # Only save the best model checkpoint
             if is_best:
                 self.logger.info("Saving best model...")
                 best_path = self.output_dir / "best_model.pt"

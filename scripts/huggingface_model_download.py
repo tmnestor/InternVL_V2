@@ -81,8 +81,9 @@ def main():
 
     # Print instructions for offline use
     print("\nTo use the downloaded model in offline mode:")
-    print(f"Update config.yaml to set pretrained_path: \"{output_dir}\"")
-    print("Then run: python main.py --config config/config.yaml --mode train")
+    print(f"Update configuration yaml to set pretrained_path: \"{output_dir}\"")
+    print("Then run with your preferred config, for example:")
+    print("python scripts/training/train_unified_multimodal.py --config config/model/unified_multimodal_config.yaml")
 
 if __name__ == "__main__":
     main()

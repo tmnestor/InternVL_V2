@@ -22,7 +22,7 @@ from utils.reproducibility import set_seed
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Evaluate InternVL2 receipt counter model")
-    parser.add_argument("--config", default="config/config.yaml", help="Path to config file")
+    parser.add_argument("--config", default="legacy/config/config.yaml", help="Path to legacy config file")
     parser.add_argument("--model_path", required=True, help="Path to trained model checkpoint")
     parser.add_argument("--pretrained_model_path", help="Path to pre-downloaded InternVL2 model (overrides config)")
     parser.add_argument("--output_dir", help="Override output directory from config")

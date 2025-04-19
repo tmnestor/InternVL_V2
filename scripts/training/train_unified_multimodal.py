@@ -1,10 +1,10 @@
+#!/usr/bin/env python3
 """
-Training script for multimodal vision-language receipt counter.
+Training script for unified multimodal vision-language receipt counter.
 
-This script implements Phase 3 of the vision-language integration:
-1. Training the InternVL-based multimodal model with a custom multi-stage strategy
-2. Optimizing for both receipt counting and language generation tasks
-3. Evaluating the model's performance with appropriate metrics
+This script implements training with a unified dataset for:
+1. Receipt counting classification
+2. Multimodal question answering
 """
 import argparse
 import logging
@@ -22,7 +22,7 @@ import yaml
 project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(project_root))
 
-from data.dataset import create_dataloaders
+from data.unified_dataset import create_unified_dataloader
 from models.vision_language.internvl2 import InternVL2MultimodalModel
 from training.multimodal_trainer import MultimodalTrainer
 from utils.device import get_device
@@ -31,10 +31,10 @@ from utils.reproducibility import set_seed
 
 def main():
     # Parse command-line arguments
-    parser = argparse.ArgumentParser(description="Train multimodal InternVL2 receipt counter")
-    parser.add_argument("--config", type=str, default="config/model/multimodal_config.yaml",
+    parser = argparse.ArgumentParser(description="Train unified multimodal InternVL2 receipt counter")
+    parser.add_argument("--config", type=str, default="config/model/unified_multimodal_config.yaml",
                         help="Path to configuration file")
-    parser.add_argument("--output-dir", type=str, default="models/multimodal",
+    parser.add_argument("--output-dir", type=str, default="models/unified_multimodal",
                         help="Output directory for model checkpoints")
     parser.add_argument("--resume", type=str, default=None,
                         help="Path to checkpoint to resume training from")
@@ -90,9 +90,20 @@ def main():
     with open(output_dir / "config.yaml", "w") as f:
         yaml.dump(config, f, default_flow_style=False)
     
-    # Create dataloaders
-    logger.info("Creating dataloaders")
-    dataloaders = create_dataloaders(config)
+    # Create dataloaders using unified dataset
+    logger.info("Creating unified dataloaders")
+    dataloaders = {
+        'train': create_unified_dataloader(config, "train"),
+        'val': create_unified_dataloader(config, "val"),
+    }
+    
+    # Add test dataloader if available
+    try:
+        test_loader = create_unified_dataloader(config, "test")
+        dataloaders['test'] = test_loader
+        logger.info("Test dataloader created successfully")
+    except Exception as e:
+        logger.warning(f"Test dataloader could not be created: {e}")
     
     # Initialize model
     logger.info("Initializing multimodal model")
@@ -146,16 +157,8 @@ def main():
     logger.info("Starting training")
     model, history = trainer.train()
     
-    # Save final model
-    logger.info("Saving final model")
-    final_model_path = output_dir / "final_model.pt"
-    torch.save({
-        "model_state_dict": model.state_dict(),
-        "history": history,
-        "config": config
-    }, final_model_path)
-    
-    logger.info(f"Training completed. Final model saved to {final_model_path}")
+    # Don't save final model, only best model is saved during training
+    logger.info("Training completed. Using best model checkpoint for deployment.")
 
 
 if __name__ == "__main__":

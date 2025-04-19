@@ -6,6 +6,7 @@ This directory contains utility functions used across the InternVL_V2 project.
 
 - `device.py`: Functions for device management (CPU/GPU)
 - `focal_loss.py`: Implementation of focal loss for classification
+- `huggingface_model_download.py`: Standalone utility for downloading HuggingFace models
 - `logging.py`: Logging utilities
 - `metrics.py`: Evaluation metrics
 - `reproducibility.py`: Functions for ensuring reproducible results

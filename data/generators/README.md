@@ -65,15 +65,27 @@ tax_document.save("tax_document_example.png")
 For full dataset generation including image collages with multiple receipts, use the script:
 
 ```bash
-PYTHONPATH=. python scripts/new/generate_data.py --output_dir datasets/synthetic_receipts --num_collages 300
+PYTHONPATH=. python scripts/data_generation/generate_data.py --output_dir datasets/synthetic_receipts --num_collages 300
 ```
 
-## Comparing Implementations
-
-To visually compare the original and ab initio implementations:
+For generating multimodal datasets with question-answer pairs:
 
 ```bash
-PYTHONPATH=. python scripts/new/visual_compare.py --output comparison.png --samples 2
+PYTHONPATH=. python scripts/data_generation/generate_multimodal_data.py --output_dir datasets/multimodal --num_samples 300
+```
+
+For unified datasets that combine receipt counting and QA tasks:
+
+```bash
+PYTHONPATH=. python scripts/data_generation/generate_unified_data.py --output_dir data/unified_dataset --num_samples 300
+```
+
+## Comparing Implementations (Legacy)
+
+To visually compare the original and ab initio implementations (legacy tool):
+
+```bash
+PYTHONPATH=. python scripts/data_generation/legacy/visual_compare.py --output comparison.png --samples 2
 ```
 
 This will generate a side-by-side comparison showing the differences between implementations.

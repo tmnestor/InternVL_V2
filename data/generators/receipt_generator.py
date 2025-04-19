@@ -40,15 +40,15 @@ except ImportError:
     np = NumpyFallback()
 
 # Realistic parameters for receipt generation
-RECEIPT_WIDTHS = range(300, 650)  # Australian receipt widths in pixels
+RECEIPT_WIDTHS = range(500, 800)  # Wider range for Australian receipt widths in pixels
 RECEIPT_HEIGHTS = range(800, 2000)  # Heights with realistic aspect ratios
 RECEIPT_ITEM_COUNTS = range(3, 20)  # Typical item counts
-RECEIPT_MARGIN = 50  # Base margin in pixels
+RECEIPT_MARGIN = 60  # Increased base margin in pixels
 FONT_SIZES = {
-    "header": range(45, 65),
-    "subheader": range(35, 50),
-    "body": range(25, 35),
-    "small": range(18, 25)
+    "header": range(40, 55),      # Slightly reduced header font size
+    "subheader": range(30, 45),   # Slightly reduced subheader font size
+    "body": range(20, 28),        # Reduced body font size for better fit
+    "small": range(16, 22)        # Slightly reduced small font size
 }
 
 # Australian store names for realistic receipts
@@ -289,10 +289,14 @@ def create_standard_receipt(width, height, items_count=None):
     # Add item headers
     draw.text((margin, current_y), "ITEM", fill="black", font=font_body)
     
-    # Calculate column positions based on width
-    qty_x = width - margin - 200
-    price_x = width - margin - 120
-    total_x = width - margin - 60
+    # Calculate column positions based on width - improved spacing
+    # Reserve 40% of receipt width for item names
+    item_width = int((width - 2 * margin) * 0.4)
+    
+    # Calculate column positions with more space between columns
+    qty_x = margin + item_width + 20
+    price_x = qty_x + 80  # More space for quantity
+    total_x = price_x + 100  # More space for price
     
     draw.text((qty_x, current_y), "QTY", fill="black", font=font_body)
     draw.text((price_x, current_y), "PRICE", fill="black", font=font_body)
@@ -349,23 +353,28 @@ def create_standard_receipt(width, height, items_count=None):
         price_str = f"${price:.2f}"
         total_str = f"${total:.2f}"
         
-        # Truncate item name if too long
-        max_name_width = qty_x - margin - 10
+        # Truncate item name if too long - ensure it fits in the allocated item space
+        max_name_width = item_width - 10  # Use the calculated item_width instead
         item_name = name
         while font_body.getlength(item_name) > max_name_width and len(item_name) > 3:
             item_name = item_name[:-1]
+        if len(item_name) < len(name) and len(item_name) > 3:
+            item_name = item_name[:-1] + "."  # Add ellipsis if truncated
         
         # Draw item details
         draw.text((margin, current_y), item_name, fill="black", font=font_body)
         
-        # Right-align quantity, price, and total
+        # Center-align quantity in its column
         qty_width = font_body.getlength(qty_str)
+        qty_center = qty_x + 40  # Center of quantity column
+        draw.text((qty_center - qty_width // 2, current_y), qty_str, fill="black", font=font_body)
+        
+        # Right-align price and total for better readability
         price_width = font_body.getlength(price_str)
         total_width = font_body.getlength(total_str)
         
-        draw.text((qty_x + 30 - qty_width, current_y), qty_str, fill="black", font=font_body)
-        draw.text((price_x + 30 - price_width, current_y), price_str, fill="black", font=font_body)
-        draw.text((total_x + 30 - total_width, current_y), total_str, fill="black", font=font_body)
+        draw.text((price_x + 50 - price_width, current_y), price_str, fill="black", font=font_body)
+        draw.text((total_x + 50 - total_width, current_y), total_str, fill="black", font=font_body)
         
         current_y += item_height
     
@@ -593,10 +602,14 @@ def create_detailed_receipt(width, height, items_count=None):
     # Add item headers
     draw.text((margin, current_y), "ITEM", fill="black", font=font_body)
     
-    # Calculate column positions based on width
-    qty_x = margin + int(width * 0.5)
-    price_x = margin + int(width * 0.65)
-    total_x = margin + int(width * 0.8)
+    # Calculate column positions based on width - improved spacing for detailed receipt
+    # Reserve 35% of receipt width for item names
+    item_width = int((width - 2 * margin) * 0.35)
+    
+    # Calculate column positions with better spacing
+    qty_x = margin + item_width + 30
+    price_x = qty_x + 90  # More space for quantity 
+    total_x = price_x + 120  # More space for price
     
     draw.text((qty_x, current_y), "QTY", fill="black", font=font_body)
     draw.text((price_x, current_y), "PRICE", fill="black", font=font_body)
@@ -664,22 +677,27 @@ def create_detailed_receipt(width, height, items_count=None):
         if unit and random.random() < 0.7:  # 70% chance to include unit
             item_name = f"{name} ({unit})"
             
-        # Truncate if too long
-        max_name_width = qty_x - margin - 20
+        # Truncate if too long - with improved space calculation
+        max_name_width = item_width - 10
         while font_body.getlength(item_name) > max_name_width and len(item_name) > 3:
             item_name = item_name[:-1]
+        if len(item_name) < len(name) and len(item_name) > 3:
+            item_name = item_name[:-1] + "."  # Add ellipsis if truncated
         
         # Draw item details
         draw.text((margin, current_y), item_name, fill="black", font=font_body)
         
-        # Right-align quantity, price, and total
+        # Center-align quantity in its column
         qty_width = font_body.getlength(qty_str)
+        qty_center = qty_x + 45  # Center of quantity column
+        draw.text((qty_center - qty_width // 2, current_y), qty_str, fill="black", font=font_body)
+        
+        # Right-align price and total with more space
         price_width = font_body.getlength(price_str)
         total_width = font_body.getlength(total_str)
         
-        draw.text((qty_x + 20 - qty_width, current_y), qty_str, fill="black", font=font_body)
-        draw.text((price_x + 30 - price_width, current_y), price_str, fill="black", font=font_body)
-        draw.text((total_x + 30 - total_width, current_y), total_str, fill="black", font=font_body)
+        draw.text((price_x + 60 - price_width, current_y), price_str, fill="black", font=font_body)
+        draw.text((total_x + 60 - total_width, current_y), total_str, fill="black", font=font_body)
         
         current_y += item_height
     
@@ -1010,10 +1028,15 @@ def create_fancy_receipt(width, height, items_count=None):
     # Add column headers
     draw.text((table_left + 10, header_top + 7), "ITEM", fill="black", font=font_body)
     
-    # Calculate column positions
-    qty_x = table_left + int((table_right - table_left) * 0.6)
-    price_x = table_left + int((table_right - table_left) * 0.75)
-    total_x = table_left + int((table_right - table_left) * 0.9)
+    # Calculate column positions with more space - fancy receipt
+    # Reserve 40% of table width for item names
+    available_width = table_right - table_left
+    item_width = int(available_width * 0.40)
+    
+    # Improved spacing between columns for fancy receipt
+    qty_x = table_left + item_width + 30
+    price_x = qty_x + 100
+    total_x = price_x + 120
     
     draw.text((qty_x, header_top + 7), "QTY", fill="black", font=font_body)
     draw.text((price_x, header_top + 7), "PRICE", fill="black", font=font_body)
@@ -1077,22 +1100,27 @@ def create_fancy_receipt(width, height, items_count=None):
         if unit and random.random() < 0.7:
             item_name = f"{name} ({unit})"
             
-        # Truncate if too long
-        max_name_width = qty_x - table_left - 20
+        # Truncate if too long - use calculated item_width
+        max_name_width = item_width - 20
         while font_body.getlength(item_name) > max_name_width and len(item_name) > 3:
             item_name = item_name[:-1]
+        if len(item_name) < len(name) and len(item_name) > 3:
+            item_name = item_name[:-1] + "."  # Add ellipsis if truncated
         
         # Draw item details
         draw.text((table_left + 10, current_y), item_name, fill="black", font=font_body)
         
-        # Right-align quantity, price, and total
+        # Center-align quantity in its column for consistency
         qty_width = font_body.getlength(qty_str)
+        qty_center = qty_x + 50  # Center of quantity column
+        draw.text((qty_center - qty_width // 2, current_y), qty_str, fill="black", font=font_body)
+        
+        # Right-align price and total with more space
         price_width = font_body.getlength(price_str)
         total_width = font_body.getlength(total_str)
         
-        draw.text((qty_x + 20 - qty_width, current_y), qty_str, fill="black", font=font_body)
-        draw.text((price_x + 30 - price_width, current_y), price_str, fill="black", font=font_body)
-        draw.text((total_x + 30 - total_width, current_y), total_str, fill="black", font=font_body)
+        draw.text((price_x + 60 - price_width, current_y), price_str, fill="black", font=font_body)
+        draw.text((total_x + 60 - total_width, current_y), total_str, fill="black", font=font_body)
         
         current_y += item_height
     
@@ -1330,19 +1358,25 @@ def create_minimal_receipt(width, height, items_count=None):
         # Format strings
         total_str = f"${total:.2f}"
         
+        # Calculate available space for item name - minimal version
+        # Reserve at least 70px for the price
+        price_column_width = max(70, font_body.getlength(total_str) + 30)
+        max_name_width = width - margin * 2 - price_column_width
+        
         # Truncate item name if too long
         item_name = name
-        max_name_width = width - margin * 2 - font_body.getlength(total_str) - 20
         while font_body.getlength(item_name) > max_name_width and len(item_name) > 3:
             item_name = item_name[:-1]
+        if len(item_name) < len(name) and len(item_name) > 3:
+            item_name = item_name[:-1] + "."  # Add ellipsis if truncated
         
-        # Draw item and price only
+        # Draw item and price only - with better spacing
         draw.text((margin, current_y), item_name, fill="black", font=font_body)
         
-        # Right-align price
+        # Right-align price with consistent positioning
         total_width = font_body.getlength(total_str)
-        draw.text((width - margin - total_width, current_y), total_str, 
-                  fill="black", font=font_body)
+        price_x = width - margin - price_column_width + 30  # More consistent positioning
+        draw.text((price_x, current_y), total_str, fill="black", font=font_body)
         
         current_y += item_height
     
@@ -1459,18 +1493,18 @@ def create_receipt(image_size=2048):
     receipt_styles = ["standard", "detailed", "minimal", "fancy"]
     style = random.choice(receipt_styles)
     
-    # Determine realistic dimensions based on style
+    # Determine realistic dimensions based on style - ensuring minimum widths for readability
     if style == "standard":
-        width = random.randint(350, 450)
+        width = random.randint(550, 650)  # Increased minimum width
         height = random.randint(1000, 1500)
     elif style == "detailed":
-        width = random.randint(400, 500)
+        width = random.randint(600, 700)  # Increased minimum width
         height = random.randint(1200, 1800)
     elif style == "minimal":
-        width = random.randint(300, 400)
+        width = random.randint(500, 600)  # Increased minimum width
         height = random.randint(800, 1200)
     else:  # fancy
-        width = random.randint(400, 550)
+        width = random.randint(600, 750)  # Increased minimum width
         height = random.randint(1300, 2000)
     
     # Randomly determine number of items
@@ -1495,6 +1529,328 @@ def create_receipt(image_size=2048):
     receipt = receipt.resize((new_width, new_height), Image.Resampling.LANCZOS)
     
     return receipt
+
+
+
+
+def generate_dataset(output_dir, num_collages=300, count_probs=None, image_size=2048, 
+                    stapled_ratio=0.0, seed=42):
+    """
+    Generate a dataset of receipt collages with varying receipt counts.
+    
+    Args:
+        output_dir: Directory to save generated images and metadata
+        num_collages: Number of collage images to generate
+        count_probs: Probability distribution for receipt counts (0-5)
+        image_size: Size of output images
+        stapled_ratio: Ratio of images with stapled receipts (only applies to receipt_count > 1)
+        seed: Random seed for reproducibility
+        
+    Returns:
+        DataFrame with image filenames and receipt counts
+    """
+    import pandas as pd
+    from pathlib import Path
+    import random
+    
+    try:
+        import numpy as np
+    except ImportError:
+        # Fallback for numpy
+        class NumpyFallback:
+            def random(self):
+                class Random:
+                    def choice(self, arr, p=None):
+                        if p is None:
+                            return random.choice(arr)
+                        # Simple weighted random choice
+                        import bisect
+                        cumulative_sum = []
+                        cumsum = 0
+                        for item in p:
+                            cumsum += item
+                            cumulative_sum.append(cumsum)
+                        x = random.random()
+                        i = bisect.bisect(cumulative_sum, x)
+                        return arr[i]
+                    def seed(self, seed):
+                        random.seed(seed)
+                return Random()
+        np = NumpyFallback()
+    
+    # Import create_tax_document from the same directory
+    from data.generators.tax_document_generator import create_tax_document
+    
+    # Set random seeds
+    random.seed(seed)
+    try:
+        np.random.seed(seed)
+    except AttributeError:
+        pass
+    
+    # Create output directories
+    output_dir = Path(output_dir)
+    images_dir = output_dir / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Default distribution if not provided
+    if count_probs is None:
+        count_probs = [0.3, 0.3, 0.2, 0.1, 0.1, 0.0]  # Probabilities for 0, 1, 2, 3, 4, 5 receipts
+    
+    # Normalize probabilities
+    count_probs = np.array(count_probs) if hasattr(np, 'array') else count_probs
+    try:
+        count_probs = count_probs / sum(count_probs)
+    except (TypeError, AttributeError):
+        count_sum = sum(count_probs)
+        count_probs = [p / count_sum for p in count_probs]
+    
+    # Function to create a single collage
+    def create_receipt_collage(receipt_count, image_size=2048, stapled=False):
+        """Create a collage with a specified number of receipts."""
+        from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
+        
+        # If no receipts, return a tax document (class 0)
+        if receipt_count == 0:
+            return create_tax_document(image_size)
+        
+        # Create blank background
+        collage = Image.new('RGB', (image_size, image_size), 'white')
+        
+        # Generate receipts
+        receipts = []
+        for _ in range(receipt_count):
+            # Create a receipt with ab initio generator
+            receipt = create_receipt(image_size)
+            receipts.append(receipt)
+        
+        # For stapled receipts, create a stack with offsets
+        if stapled and receipt_count > 1:
+            # Find the largest receipt dimensions
+            max_width = max(r.width for r in receipts)
+            max_height = max(r.height for r in receipts)
+            
+            # Center position for the stack
+            center_x = (image_size - max_width) // 2
+            center_y = (image_size - max_height) // 2
+            
+            # Place receipts with small offsets
+            for _, receipt in enumerate(receipts):
+                # Calculate offset for this receipt in the stack
+                offset_x = random.randint(-15, 15)
+                offset_y = random.randint(-15, 15)
+                
+                # Ensure receipt stays within bounds
+                x_pos = max(20, min(center_x + offset_x, image_size - receipt.width - 20))
+                y_pos = max(20, min(center_y + offset_y, image_size - receipt.height - 20))
+                
+                # Paste receipt onto collage
+                collage.paste(receipt, (x_pos, y_pos))
+            
+            # Add a staple mark
+            draw = ImageDraw.Draw(collage)
+            if random.random() > 0.5:  # Top staple
+                staple_x = center_x + max_width // 2
+                staple_y = center_y - 10
+                draw.line([(staple_x-8, staple_y), (staple_x+8, staple_y)], fill="black", width=3)
+                draw.line([(staple_x-5, staple_y-5), (staple_x-5, staple_y+5)], fill="black", width=3)
+                draw.line([(staple_x+5, staple_y-5), (staple_x+5, staple_y+5)], fill="black", width=3)
+            else:  # Side staple
+                staple_x = center_x - 10
+                staple_y = center_y + max_height // 2
+                draw.line([(staple_x, staple_y-8), (staple_x, staple_y+8)], fill="black", width=3)
+                draw.line([(staple_x-5, staple_y-5), (staple_x+5, staple_y-5)], fill="black", width=3)
+                draw.line([(staple_x-5, staple_y+5), (staple_x+5, staple_y+5)], fill="black", width=3)
+        else:
+            # Distribute receipts across the image
+            for idx, receipt in enumerate(receipts):
+                if receipt_count == 1:
+                    # Center the receipt
+                    x_pos = (image_size - receipt.width) // 2
+                    y_pos = (image_size - receipt.height) // 2
+                else:
+                    # Distribute receipts with some randomness
+                    # Calculate left and right side positions with range checking
+                    left_side_start = 30
+                    left_side_end = max(left_side_start + 1, image_size // 2 - receipt.width - 30)
+                    
+                    right_side_start = image_size // 2 + 30
+                    right_side_end = max(right_side_start + 1, image_size - receipt.width - 30)
+                    
+                    # If we can't fit the receipt in the intended area, use center positioning
+                    if left_side_start >= left_side_end or right_side_start >= right_side_end:
+                        # Fall back to center positioning
+                        x_pos = max(30, (image_size - receipt.width) // 2)
+                    else:
+                        # Place on left or right as intended
+                        if idx % 2 == 0:  # Left side
+                            x_pos = random.randint(left_side_start, left_side_end)
+                        else:  # Right side
+                            x_pos = random.randint(right_side_start, right_side_end)
+                    
+                    # Handle potential vertical positioning issues
+                    y_start = 30
+                    y_end = max(y_start + 1, image_size - receipt.height - 30)
+                    y_pos = random.randint(y_start, y_end)
+                
+                # Paste receipt onto collage
+                collage.paste(receipt, (x_pos, y_pos))
+                
+                # Add random rotation to some receipts when there are multiple
+                if receipt_count > 1 and random.random() < 0.5:
+                    # Create a new layer for the rotated receipt
+                    layer = Image.new('RGBA', (image_size, image_size), (0, 0, 0, 0))
+                    layer.paste(receipt, (x_pos, y_pos))
+                    
+                    # Apply rotation
+                    angle = random.uniform(-10, 10)
+                    rotated = layer.rotate(angle, resample=Image.BICUBIC, expand=False)
+                    
+                    # Composite onto main collage
+                    collage = Image.alpha_composite(collage.convert('RGBA'), rotated)
+                    collage = collage.convert('RGB')
+        
+        # Apply slight blur to ~20% of images for realism
+        if random.random() < 0.2:
+            blur_radius = random.uniform(0.3, 1.0)
+            collage = collage.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+        
+        # Occasionally enhance contrast slightly
+        if random.random() < 0.3:
+            enhancer = ImageEnhance.Contrast(collage)
+            collage = enhancer.enhance(random.uniform(1.0, 1.2))
+        
+        return collage
+    
+    # Generate collages
+    data = []
+    
+    for i in range(num_collages):
+        # Determine number of receipts based on probability distribution
+        if hasattr(np.random, 'choice'):
+            receipt_count = np.random.choice(len(count_probs), p=count_probs)
+        else:
+            receipt_count = np.random().choice(range(len(count_probs)), p=count_probs)
+        
+        # Determine if this should be stapled (only for multiple receipts)
+        is_stapled = False
+        if receipt_count > 1 and random.random() < stapled_ratio:
+            is_stapled = True
+        
+        # Create collage
+        try:
+            collage = create_receipt_collage(receipt_count, image_size, stapled=is_stapled)
+            
+            # Save image
+            filename = f"receipt_collage_{i:05d}.png"
+            collage.save(images_dir / filename)
+            
+            # Add to dataset
+            data.append({
+                "filename": filename,
+                "receipt_count": receipt_count,
+                "is_stapled": is_stapled
+            })
+            
+            # Progress update
+            if (i + 1) % 10 == 0 or i == 0:
+                print(f"Generated {i + 1}/{num_collages} collages")
+                
+        except Exception as e:
+            print(f"Error generating collage {i}: {e}")
+    
+    # Create and save metadata
+    df = pd.DataFrame(data)
+    df.to_csv(output_dir / "metadata.csv", index=False)
+    
+    # Print statistics
+    print(f"\nDataset generation complete: {num_collages} images")
+    print(f"Distribution of receipt counts: {df['receipt_count'].value_counts().sort_index()}")
+    print(f"ATO tax documents (0 receipts): {len(df[df['receipt_count'] == 0])}")
+    print(f"High-resolution images: {image_size}×{image_size}")
+    
+    if stapled_ratio > 0:
+        stapled_count = df['is_stapled'].sum()
+        print(f"Stapled receipts: {stapled_count} ({stapled_count/num_collages:.1%})")
+    
+    # Split dataset functionality
+    try:
+        # Try to use sklearn for stratified splitting
+        from sklearn.model_selection import train_test_split
+        
+        # Check if we have enough samples in each class for stratified split
+        class_counts = df['receipt_count'].value_counts()
+        min_class_count = class_counts.min()
+        
+        if min_class_count >= 4:  # Need at least 2 samples per split (train/val/test)
+            # First split into train and temp (val+test combined)
+            train_ratio = 0.7  # Fixed ratio for train split
+            val_ratio = 0.15   # Fixed ratio for validation split
+            
+            train_df, temp_df = train_test_split(
+                df, 
+                train_size=train_ratio,
+                stratify=df['receipt_count'],
+                random_state=42
+            )
+            
+            # Then split temp into val and test
+            val_ratio_adjusted = val_ratio / (1 - train_ratio)  # Adjust for remaining portion
+            val_df, test_df = train_test_split(
+                temp_df,
+                train_size=val_ratio_adjusted,
+                stratify=temp_df['receipt_count'],
+                random_state=42
+            )
+            print("Used sklearn for stratified dataset splitting")
+        else:
+            # Not enough samples for stratified split, fall back to random
+            raise ValueError("Not enough samples for stratified split")
+    
+    except (ImportError, ValueError) as e:
+        # Manual split if sklearn is not available or not enough samples
+        print(f"Using non-stratified split: {e}")
+        # Shuffle the dataframe
+        df_shuffled = df.sample(frac=1, random_state=42)
+        
+        # Calculate split indices
+        train_ratio = 0.7
+        val_ratio = 0.15
+        train_end = int(len(df_shuffled) * train_ratio)
+        val_end = train_end + int(len(df_shuffled) * val_ratio)
+        
+        # Split the dataframe
+        train_df = df_shuffled.iloc[:train_end]
+        val_df = df_shuffled.iloc[train_end:val_end]
+        test_df = df_shuffled.iloc[val_end:]
+    
+    # Save split metadata
+    train_df.to_csv(output_dir / "metadata_train.csv", index=False)
+    val_df.to_csv(output_dir / "metadata_val.csv", index=False)
+    test_df.to_csv(output_dir / "metadata_test.csv", index=False)
+    
+    # Print split statistics
+    print("\nDataset split statistics:")
+    print(f"  Training set:   {len(train_df)} images ({train_ratio:.1%})")
+    print(f"  Validation set: {len(val_df)} images ({val_ratio:.1%})")
+    print(f"  Test set:       {len(test_df)} images ({1-train_ratio-val_ratio:.1%})")
+    
+    # Print class distribution in each split
+    print("\nReceipt count distribution:")
+    train_dist = train_df['receipt_count'].value_counts().sort_index()
+    val_dist = val_df['receipt_count'].value_counts().sort_index()
+    test_dist = test_df['receipt_count'].value_counts().sort_index()
+    
+    for count in sorted(df['receipt_count'].unique()):
+        train_count = train_dist.get(count, 0)
+        val_count = val_dist.get(count, 0)
+        test_count = test_dist.get(count, 0)
+        total_count = train_count + val_count + test_count
+        
+        print(f"  Class {count}: {train_count} train, {val_count} val, {test_count} test "
+              f"(total: {total_count})")
+    
+    return df
 
 
 if __name__ == "__main__":

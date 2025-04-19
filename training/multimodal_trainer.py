@@ -61,54 +61,34 @@ class MultimodalTrainer:
         
         # Configure checkpoint options
         self.use_safe_serialization = config["output"].get("safe_serialization", True)
-        if self.use_safe_serialization and hasattr(torch, "save") and hasattr(torch.save, "__kwdefaults__") and torch.save.__kwdefaults__ and "_use_new_zipfile_serialization" in torch.save.__kwdefaults__:
-            self.logger.info("Using safe PyTorch serialization (non-zipfile based)")
-        else:
-            self.use_safe_serialization = False
-            
-        # Option to save in half precision
         self.save_half_precision = config["output"].get("save_half_precision", False)
         
-        # Environment setup
+        # Environment setup for CUDA
         if torch.cuda.is_available():
-            os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
-            if not os.environ.get("CUDA_LAUNCH_BLOCKING"):
-                os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
+            os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:128"
             
             self.logger.info(f"CUDA device: {torch.cuda.get_device_name(0)}")
             self.logger.info(f"CUDA capability: {torch.cuda.get_device_capability()}")
-        
-        # Setup device
-        self.device = get_device()
-        self.model.to(self.device)
-        
-        # Set PyTorch CUDA memory settings to avoid OOM errors
-        if torch.cuda.is_available():
-            # Set PyTorch CUDA memory settings
-            torch.cuda.empty_cache()
             
-            # Set expandable segments to True to avoid fragmentation
-            os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:128"
+            # Clean up GPU memory
+            torch.cuda.empty_cache()
             
             # Log current memory usage
             allocated = torch.cuda.memory_allocated() / 1024**3
             reserved = torch.cuda.memory_reserved() / 1024**3
             self.logger.info(f"GPU Memory: Allocated: {allocated:.2f} GB, Reserved: {reserved:.2f} GB")
-            
-            # Check if we need to reduce batch size due to memory constraints
-            if allocated > 16:
-                self.logger.warning("High GPU memory usage detected. Consider reducing batch size.")
+        
+        # Setup device
+        self.device = get_device()
+        self.model.to(self.device)
         
         # Apply torch.compile if available and enabled
         if (torch.cuda.is_available() and hasattr(torch, 'compile') and 
                 self.config["training"].get("torch_compile", False)):
-            try:
-                compile_mode = self.config["training"].get("compile_mode", "reduce-overhead")
-                self.logger.info(f"Applying torch.compile with mode: {compile_mode}")
-                self.model = torch.compile(self.model, mode=compile_mode)
-                self.logger.info("Successfully applied torch.compile for GPU acceleration")
-            except Exception as e:
-                self.logger.warning(f"Failed to apply torch.compile: {e}")
+            compile_mode = self.config["training"].get("compile_mode", "reduce-overhead")
+            self.logger.info(f"Applying torch.compile with mode: {compile_mode}")
+            self.model = torch.compile(self.model, mode=compile_mode)
+            self.logger.info("Successfully applied torch.compile for GPU acceleration")
         
         # Setup loss function with configured weights
         loss_weights = config["training"]["loss_weights"]
@@ -402,10 +382,6 @@ class MultimodalTrainer:
         
         # Training loop
         for batch_idx, batch in enumerate(pbar):
-            # Free up memory before processing batch
-            if torch.cuda.is_available() and batch_idx % 10 == 0:
-                torch.cuda.empty_cache()
-            
             # Move data to device
             batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
                     for k, v in batch.items()}
@@ -416,124 +392,27 @@ class MultimodalTrainer:
             
             # Forward pass with mixed precision if enabled
             if self.use_mixed_precision:
-                try:
-                    with autocast():
-                        outputs = self.model(
-                            pixel_values=batch["pixel_values"],
-                            text_input_ids=batch["text_input_ids"],
-                            attention_mask=batch["text_attention_mask"]
-                        )
-                        
-                        # Check for NaN or Inf values in model outputs (completely silent replacement)
-                        for key, tensor in outputs.items():
-                            if isinstance(tensor, torch.Tensor) and not torch.isfinite(tensor).all():
-                                outputs[key] = torch.zeros_like(tensor)
-                        
-                        loss_dict = self.loss_fn(
-                            model_outputs=outputs,
-                            classification_labels=batch["classification_labels"],
-                            language_labels=batch["labels"],
-                            attention_mask=batch["labels_attention_mask"]
-                        )
-                        
-                        # Check if loss is reasonable (not too large) - silent clamping
-                        if loss_dict["total_loss"] > 100.0:  # Reduced threshold from 10000 to 100
-                            # Scale the loss silently to maintain gradients
-                            scale_factor = 100.0 / loss_dict["total_loss"].item()
-                            loss_dict["total_loss"] = scale_factor * loss_dict["total_loss"]
-                        
-                        # Scale loss by accumulation steps
-                        loss = loss_dict["total_loss"] / gradient_accumulation_steps
-                except Exception as e:
-                    self.logger.error(f"Error during forward/loss calculation with mixed precision: {e}")
-                    # Create default outputs and loss with gradient if calculation failed
-                    # Use a dummy variable connected to the model parameters to ensure gradient flow
-                    dummy_var = next(self.model.parameters())
-                    loss = 100.0 * (dummy_var.sum() / dummy_var.numel()).tanh()
-                    loss_dict = {"total_loss": loss * gradient_accumulation_steps}
+                with autocast():
+                    # Forward pass through model
+                    outputs = self.model(
+                        pixel_values=batch["pixel_values"],
+                        text_input_ids=batch["text_input_ids"],
+                        attention_mask=batch["text_attention_mask"]
+                    )
                     
-                    # Create dummy outputs to prevent errors later in the code
-                    outputs = {
-                        "logits": torch.zeros((batch["classification_labels"].size(0), self.config["model"]["num_classes"]), 
-                                            device=self.device),
-                        "response_logits": torch.zeros((batch["classification_labels"].size(0), 10, 10), 
-                                                    device=self.device),
-                    }
+                    # Calculate loss
+                    loss_dict = self.loss_fn(
+                        model_outputs=outputs,
+                        classification_labels=batch["classification_labels"],
+                        language_labels=batch["labels"],
+                        attention_mask=batch["labels_attention_mask"]
+                    )
                     
-                    if not hasattr(self, 'error_count'):
-                        self.error_count = 0
-                    self.error_count += 1
-                    if self.error_count > 5:
-                        self.logger.error("Too many errors during training. Consider reducing learning rate or batch size.")
-                        # Force smaller learning rate
-                        for param_group in self.optimizer.param_groups:
-                            param_group['lr'] = param_group['lr'] * 0.1
-                        self.error_count = 0
+                    # Scale loss by accumulation steps
+                    loss = loss_dict["total_loss"] / gradient_accumulation_steps
                 
-                # Check if any parameters require gradients
-                params_requiring_grad = any(p.requires_grad for p in self.model.parameters())
-                if not params_requiring_grad:
-                    self.logger.warning("No parameters require gradients. Training will have no effect.")
-                    
-                    # Force some parameters to have gradients if needed
-                    self.logger.warning("Forcing some parameters to require gradients")
-                    
-                    # Force at least the cross attention, classification head and response generator to have gradients
-                    if hasattr(self.model, "cross_attention"):
-                        for param in self.model.cross_attention.parameters():
-                            param.requires_grad = True
-                            
-                    if hasattr(self.model, "classification_head"):
-                        for param in self.model.classification_head.parameters():
-                            param.requires_grad = True
-                            
-                    if hasattr(self.model, "response_generator"):
-                        for param in self.model.response_generator.parameters():
-                            param.requires_grad = True
-                    
-                    # If we have a question classifier, ensure it has gradients
-                    if hasattr(self.model, "question_classifier"):
-                        for param in self.model.question_classifier.parameters():
-                            param.requires_grad = True
-                
-                # Use a dummy loss connected to model parameters if we need to force gradients
-                try:
-                    # Ensure loss requires grad
-                    if not loss.requires_grad:
-                        self.logger.warning("Loss does not require gradients. Creating dummy loss.")
-                        # Find a parameter that requires grad
-                        found_param = False
-                        for param in self.model.parameters():
-                            if param.requires_grad:
-                                found_param = True
-                                dummy_loss = loss.detach() * 0.0 + (param.sum() * 0.0 + 0.1) * loss.detach()
-                                self.scaler.scale(dummy_loss).backward()
-                                found_param = True
-                                break
-                                
-                        if not found_param:
-                            # Force enable gradients on some parameters
-                            self.logger.warning("No parameters require gradients. Enabling gradients on cross attention.")
-                            if hasattr(self.model, "cross_attention"):
-                                for param in self.model.cross_attention.parameters():
-                                    param.requires_grad = True
-                                dummy_loss = loss.detach() * 0.0 + (self.model.cross_attention.parameters().__next__().sum() * 0.0 + 0.1) * loss.detach()
-                                self.scaler.scale(dummy_loss).backward()
-                            else:
-                                # Last resort - just create a dummy parameter ourselves
-                                self.logger.warning("No suitable parameters found for gradients. Using dummy parameter.")
-                                dummy_param = nn.Parameter(torch.ones(1, device=self.device))
-                                dummy_loss = loss.detach() * 0.0 + dummy_param * 0.1
-                                self.scaler.scale(dummy_loss).backward()
-                    else:
-                        # Normal backward pass with gradient scaling
-                        self.scaler.scale(loss).backward()
-                except Exception as e:
-                    self.logger.error(f"Error in backward pass: {e}")
-                    # Create emergency fallback
-                    dummy_param = nn.Parameter(torch.ones(1, device=self.device))
-                    dummy_loss = dummy_param * 0.1
-                    self.scaler.scale(dummy_loss).backward()
+                # Backward pass with gradient scaling
+                self.scaler.scale(loss).backward()
                 
                 # Only update weights at the end of accumulation steps or at the last batch
                 if (batch_idx + 1) % gradient_accumulation_steps == 0 or (batch_idx + 1) == len(train_loader):
@@ -550,132 +429,26 @@ class MultimodalTrainer:
                     self.optimizer.zero_grad()
             else:
                 # Standard precision training
-                # Split input processing to reduce memory usage
-                with torch.no_grad():
-                    # Preprocess batch to reduce peak memory
-                    pixel_values = batch["pixel_values"]
-                    text_input_ids = batch["text_input_ids"]
-                    text_attention_mask = batch["text_attention_mask"]
+                # Forward pass through model
+                outputs = self.model(
+                    pixel_values=batch["pixel_values"],
+                    text_input_ids=batch["text_input_ids"],
+                    attention_mask=batch["text_attention_mask"]
+                )
                 
-                # Forward pass with error handling for numerical stability
-                try:
-                    outputs = self.model(
-                        pixel_values=pixel_values,
-                        text_input_ids=text_input_ids,
-                        attention_mask=text_attention_mask
-                    )
-                    
-                    # Check for NaN or Inf values in model outputs (completely silent replacement)
-                    for key, tensor in outputs.items():
-                        if isinstance(tensor, torch.Tensor) and not torch.isfinite(tensor).all():
-                            outputs[key] = torch.zeros_like(tensor)
-                    
-                    loss_dict = self.loss_fn(
-                        model_outputs=outputs,
-                        classification_labels=batch["classification_labels"],
-                        language_labels=batch["labels"],
-                        attention_mask=batch["labels_attention_mask"]
-                    )
-                    
-                    # Check if loss is reasonable (not too large) - silent clamping
-                    if loss_dict["total_loss"] > 100.0:  # Reduced threshold from 10000 to 100
-                        # Scale the loss silently to maintain gradients
-                        scale_factor = 100.0 / loss_dict["total_loss"].item()
-                        loss_dict["total_loss"] = scale_factor * loss_dict["total_loss"]
-                    
-                    # Scale loss by accumulation steps
-                    loss = loss_dict["total_loss"] / gradient_accumulation_steps
-                    
-                except Exception as e:
-                    self.logger.error(f"Error during forward/loss calculation: {e}")
-                    # Create default outputs and loss with gradient if calculation failed
-                    # Use a dummy variable connected to the model parameters to ensure gradient flow
-                    dummy_var = next(self.model.parameters())
-                    loss = 100.0 * (dummy_var.sum() / dummy_var.numel()).tanh()
-                    loss_dict = {"total_loss": loss * gradient_accumulation_steps}
-                    
-                    # Create dummy outputs to prevent errors later in the code
-                    outputs = {
-                        "logits": torch.zeros((batch["classification_labels"].size(0), self.config["model"]["num_classes"]), 
-                                            device=self.device),
-                        "response_logits": torch.zeros((batch["classification_labels"].size(0), 10, 10), 
-                                                    device=self.device),
-                    }
-                    
-                    if not hasattr(self, 'error_count'):
-                        self.error_count = 0
-                    self.error_count += 1
-                    if self.error_count > 5:
-                        self.logger.error("Too many errors during training. Consider reducing learning rate or batch size.")
-                        # Force smaller learning rate
-                        for param_group in self.optimizer.param_groups:
-                            param_group['lr'] = param_group['lr'] * 0.1
-                        self.error_count = 0
+                # Calculate loss
+                loss_dict = self.loss_fn(
+                    model_outputs=outputs,
+                    classification_labels=batch["classification_labels"],
+                    language_labels=batch["labels"],
+                    attention_mask=batch["labels_attention_mask"]
+                )
                 
-                # Check if any parameters require gradients
-                params_requiring_grad = any(p.requires_grad for p in self.model.parameters())
-                if not params_requiring_grad:
-                    self.logger.warning("No parameters require gradients. Training will have no effect.")
-                    
-                    # Force some parameters to have gradients if needed
-                    self.logger.warning("Forcing some parameters to require gradients")
-                    
-                    # Force at least the cross attention, classification head and response generator to have gradients
-                    if hasattr(self.model, "cross_attention"):
-                        for param in self.model.cross_attention.parameters():
-                            param.requires_grad = True
-                            
-                    if hasattr(self.model, "classification_head"):
-                        for param in self.model.classification_head.parameters():
-                            param.requires_grad = True
-                            
-                    if hasattr(self.model, "response_generator"):
-                        for param in self.model.response_generator.parameters():
-                            param.requires_grad = True
-                    
-                    # If we have a question classifier, ensure it has gradients
-                    if hasattr(self.model, "question_classifier"):
-                        for param in self.model.question_classifier.parameters():
-                            param.requires_grad = True
+                # Scale loss by accumulation steps
+                loss = loss_dict["total_loss"] / gradient_accumulation_steps
                 
-                # Use a dummy loss connected to model parameters if we need to force gradients
-                try:
-                    # Ensure loss requires grad
-                    if not loss.requires_grad:
-                        self.logger.warning("Loss does not require gradients. Creating dummy loss.")
-                        # Find a parameter that requires grad
-                        found_param = False
-                        for param in self.model.parameters():
-                            if param.requires_grad:
-                                found_param = True
-                                dummy_loss = loss.detach() * 0.0 + (param.sum() * 0.0 + 0.1) * loss.detach()
-                                dummy_loss.backward()
-                                found_param = True
-                                break
-                                
-                        if not found_param:
-                            # Force enable gradients on some parameters
-                            self.logger.warning("No parameters require gradients. Enabling gradients on cross attention.")
-                            if hasattr(self.model, "cross_attention"):
-                                for param in self.model.cross_attention.parameters():
-                                    param.requires_grad = True
-                                dummy_loss = loss.detach() * 0.0 + (self.model.cross_attention.parameters().__next__().sum() * 0.0 + 0.1) * loss.detach()
-                                dummy_loss.backward()
-                            else:
-                                # Last resort - just create a dummy parameter ourselves
-                                self.logger.warning("No suitable parameters found for gradients. Using dummy parameter.")
-                                dummy_param = nn.Parameter(torch.ones(1, device=self.device))
-                                dummy_loss = loss.detach() * 0.0 + dummy_param * 0.1
-                                dummy_loss.backward()
-                    else:
-                        # Normal backward pass
-                        loss.backward()
-                except Exception as e:
-                    self.logger.error(f"Error in backward pass: {e}")
-                    # Create emergency fallback
-                    dummy_param = nn.Parameter(torch.ones(1, device=self.device))
-                    dummy_loss = dummy_param * 0.1
-                    dummy_loss.backward()
+                # Regular backward pass
+                loss.backward()
                 
                 # Only update weights at the end of accumulation steps or at the last batch
                 if (batch_idx + 1) % gradient_accumulation_steps == 0 or (batch_idx + 1) == len(train_loader):
@@ -689,7 +462,7 @@ class MultimodalTrainer:
                     # Zero gradients after update
                     self.optimizer.zero_grad()
             
-            # Update running losses (using the unscaled loss for logging)
+            # Update running losses
             running_loss += loss_dict["total_loss"].item()
             if "classification_loss" in loss_dict:
                 running_class_loss += loss_dict["classification_loss"].item()
@@ -702,44 +475,40 @@ class MultimodalTrainer:
                 total += batch["classification_labels"].size(0)
                 correct += predicted.eq(batch["classification_labels"]).sum().item()
             
-            # Collect text generation outputs for BLEU calculation 
-            # Only sample a few batches to save memory
+            # Collect text generation outputs for BLEU calculation (only every 5th batch)
             if "response_logits" in outputs and batch_idx % 5 == 0:
-                # Get predictions (greedy decoding for efficiency during training)
-                with torch.no_grad():  # Don't track gradients here to save memory
+                # Get predictions (greedy decoding)
+                with torch.no_grad():
                     pred_tokens = outputs["response_logits"].argmax(dim=-1)
                 
                 # Convert to text for metric calculation
                 tokenizer = self.model.tokenizer
-                for i in range(min(2, pred_tokens.size(0))):  # Only decode a couple samples to save time
-                    try:
-                        # Filter out negative or extremely large token IDs that may cause overflow
-                        pred_tokens_valid = [t.item() for t in pred_tokens[i] if 0 <= t.item() < tokenizer.vocab_size]
-                        label_tokens_valid = [t.item() for t in batch["labels"][i] if 0 <= t.item() < tokenizer.vocab_size]
-                        
-                        pred_text = tokenizer.decode(pred_tokens_valid, skip_special_tokens=True)
-                        target_text = tokenizer.decode(label_tokens_valid, skip_special_tokens=True)
-                        
-                        if pred_text and target_text:  # Only add non-empty strings
-                            all_predictions.append(pred_text)
-                            all_targets.append(target_text)
-                    except Exception as e:
-                        self.logger.warning(f"Error decoding tokens: {e}")
+                for i in range(min(2, pred_tokens.size(0))):  # Only decode a couple samples
+                    # Get token IDs within valid range
+                    pred_tokens_valid = [t.item() for t in pred_tokens[i] if 0 <= t.item() < tokenizer.vocab_size]
+                    label_tokens_valid = [t.item() for t in batch["labels"][i] if 0 <= t.item() < tokenizer.vocab_size]
+                    
+                    # Decode to text
+                    pred_text = tokenizer.decode(pred_tokens_valid, skip_special_tokens=True)
+                    target_text = tokenizer.decode(label_tokens_valid, skip_special_tokens=True)
+                    
+                    # Only add non-empty strings
+                    if pred_text and target_text:
+                        all_predictions.append(pred_text)
+                        all_targets.append(target_text)
             
             # Update progress bar
             pbar.set_postfix({
-                'loss': loss.item() * gradient_accumulation_steps, # Show unscaled loss
+                'loss': loss.item() * gradient_accumulation_steps,
                 'acc': 100. * correct / max(1, total)
             })
             
-            # Free up memory
+            # Clean up memory
             del outputs
-            if batch_idx % gradient_accumulation_steps == 0:
-                # Manually trigger garbage collection
-                import gc
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+            
+            # Clear CUDA cache periodically
+            if torch.cuda.is_available() and batch_idx % 20 == 0:
+                torch.cuda.empty_cache()
         
         # Calculate epoch metrics
         epoch_loss = running_loss / len(train_loader)
@@ -835,213 +604,37 @@ class MultimodalTrainer:
                     total += batch["classification_labels"].size(0)
                     correct += predicted.eq(batch["classification_labels"]).sum().item()
                 
-                # Generate text responses for evaluation
-                if batch_idx % 5 == 0:  # Only generate for some batches to save time
-                    try:
-                        # Generate responses with safer parameters
-                        # Check if model supports repetition_penalty
-                        generate_params = {
-                            "pixel_values": batch["pixel_values"],
-                            "text_input_ids": batch["text_input_ids"],
-                            "attention_mask": batch["text_attention_mask"],
-                            "max_length": 50,
-                            "temperature": 0.5,  # Lower temperature for more focused responses
-                            "top_k": 5,  # Restrict sampling to higher probability tokens
-                            "top_p": 0.92,  # Further restrict to most likely tokens
-                        }
-                        
-                        # Check if the model implementation supports repetition_penalty
-                        import inspect
-                        if 'repetition_penalty' in inspect.signature(self.model.generate_response).parameters:
-                            generate_params["repetition_penalty"] = 1.5
+                # Generate text responses for evaluation (only every 5th batch to save time)
+                if batch_idx % 5 == 0:
+                    # Generate responses with appropriate parameters
+                    generate_params = {
+                        "pixel_values": batch["pixel_values"],
+                        "text_input_ids": batch["text_input_ids"],
+                        "attention_mask": batch["text_attention_mask"],
+                        "max_length": 50,
+                        "temperature": 0.5,
+                        "top_k": 5,
+                        "top_p": 0.92,
+                    }
+                    
+                    # Generate responses directly from the model
+                    generated_ids, decoded_texts = self.model.generate_response(**generate_params)
+                    
+                    # Get target texts for comparison
+                    tokenizer = self.model.tokenizer
+                    target_texts = []
+                    
+                    for i in range(len(decoded_texts)):
+                        # Only collect non-empty predictions
+                        if decoded_texts[i].strip():
+                            # Get corresponding target text
+                            valid_tokens = [t for t in batch["labels"][i] if 0 <= t < tokenizer.vocab_size]
+                            target_text = tokenizer.decode(valid_tokens, skip_special_tokens=True)
                             
-                        generated_ids, decoded_texts = self.model.generate_response(**generate_params)
-                        
-                        # Create fallback responses based on classification
-                        if "logits" in outputs:
-                            _, predicted_classes = outputs["logits"].max(1)
-                            # Replace empty or meaningless responses with meaningful ones
-                            for i in range(len(decoded_texts)):
-                                text = decoded_texts[i]
-                                
-                                # Check if the text is empty or meaningless
-                                # Test for empty strings, sequences of just dots/periods, or mostly dots
-                                is_empty = (not text or 
-                                           text.strip() == "" or 
-                                           text.strip() == "." * len(text.strip()) or 
-                                           text.count(".") > len(text.strip()) / 2 or
-                                           len(set(text.strip())) <= 3)
-                                
-                                # Get the actual receipt count from the batch (ground truth)
-                                true_receipt_count = batch["classification_labels"][i].item() if i < len(batch["classification_labels"]) else None
-                                
-                                # Use the true label for the fallback response when possible
-                                if is_empty and true_receipt_count is not None:
-                                    # Generate a response based on the true label, not the prediction
-                                    if true_receipt_count == 0:
-                                        # Get the question string by decoding text_input_ids
-                                        try:
-                                            # Decode the original question from the tokenized input
-                                            question_input_ids = batch["text_input_ids"][i]
-                                            question_text = self.model.tokenizer.decode(question_input_ids, skip_special_tokens=True)
-                                            
-                                            # Check if it's a question about counting receipts
-                                            self.logger.info(f"Question: '{question_text}'")
-                                            # Improved detection of statements vs questions
-                                            # A statement is likely if: no question mark, doesn't start with question words,
-                                            # and contains declarative structure
-                                            question_markers = ["?", "how", "what", "which", "where", "when", "who", "why", "can you", "do you", "is there", "are there"]
-                                            statement_markers = ["this is", "there is", "there are", "i see", "i can see", "it is", "i count"]
-                                            
-                                            has_question_marker = any(q in question_text.lower() for q in question_markers)
-                                            has_statement_marker = any(s in question_text.lower() for s in statement_markers)
-                                            
-                                            is_statement = has_statement_marker or not has_question_marker
-                                            
-                                            if "count" in question_text.lower() or "how many" in question_text.lower():
-                                                decoded_texts[i] = "There are 0 receipts in this image."
-                                            elif "receipt" in question_text.lower():
-                                                decoded_texts[i] = "There are no receipts in this image. This is a tax document from the ATO."
-                                            else:
-                                                # General question/statement about document type
-                                                if is_statement and "tax" in question_text.lower() and "document" in question_text.lower():
-                                                    # It's a statement affirming it's a tax document
-                                                    decoded_texts[i] = "Yes, that's correct. This is a tax document from the Australian Taxation Office."
-                                                else:
-                                                    # General response about document type
-                                                    decoded_texts[i] = "This is a tax document from the Australian Taxation Office."
-                                        except Exception as e:
-                                            # If we couldn't decode the question, default to a generic response
-                                            self.logger.warning(f"Error decoding question: {e}")
-                                            decoded_texts[i] = "This is a tax document from the Australian Taxation Office."
-                                    else:
-                                        # For receipt images, try to be more diverse in responses
-                                        try:
-                                            question_input_ids = batch["text_input_ids"][i]
-                                            question_text = self.model.tokenizer.decode(question_input_ids, skip_special_tokens=True)
-                                            self.logger.info(f"Receipt Question: '{question_text}'")
-                                            
-                                            # Improved detection of statements vs questions
-                                            # A statement is likely if: no question mark, doesn't start with question words,
-                                            # and contains declarative structure
-                                            question_markers = ["?", "how", "what", "which", "where", "when", "who", "why", "can you", "do you", "is there", "are there"]
-                                            statement_markers = ["this is", "there is", "there are", "i see", "i can see", "it is", "i count"]
-                                            
-                                            has_question_marker = any(q in question_text.lower() for q in question_markers)
-                                            has_statement_marker = any(s in question_text.lower() for s in statement_markers)
-                                            
-                                            is_statement = has_statement_marker or not has_question_marker
-                                            
-                                            # Check if this is a question (rather than statement)
-                                            def is_question(text):
-                                                """Check if this is a question rather than a statement."""
-                                                text = text.lower().strip()
-                                                # Look for question marks and question words
-                                                has_question_mark = "?" in text
-                                                starts_with_question_word = any(text.startswith(word) for word in 
-                                                                         ["how", "what", "which", "where", "when", "who", "why", "can", "do", "is", "are"])
-                                                has_question_phrase = any(phrase in text for phrase in 
-                                                                     ["is this", "is it", "are there", "can you", "do you see"])
-                                                return has_question_mark or starts_with_question_word or has_question_phrase
-                                            
-                                            # Skip responses to non-question statements about receipts
-                                            if not is_question(question_text) and "receipt" in question_text.lower():
-                                                # Don't respond to statements
-                                                continue
-                                            
-                                            # Vary response based on question type
-                                            if "how many" in question_text.lower():
-                                                decoded_texts[i] = f"There {'is' if true_receipt_count == 1 else 'are'} {true_receipt_count} receipt{'s' if true_receipt_count != 1 else ''} in this image."
-                                            elif "count" in question_text.lower():
-                                                decoded_texts[i] = f"I count {true_receipt_count} receipt{'s' if true_receipt_count != 1 else ''} in the image."
-                                            else:
-                                                decoded_texts[i] = f"I can see {true_receipt_count} receipt{'s' if true_receipt_count != 1 else ''} in this image."
-                                        except Exception as e:
-                                            # Fallback to generic response
-                                            self.logger.warning(f"Error processing receipt question: {e}")
-                                            decoded_texts[i] = f"I can see {true_receipt_count} receipt{'s' if true_receipt_count != 1 else ''} in this image."
-                                elif is_empty:
-                                    # Fallback to model prediction if true label is not available
-                                    if i < len(predicted_classes):
-                                        cls = predicted_classes[i].item()
-                                        try:
-                                            # Try to get the question for context
-                                            question_input_ids = batch["text_input_ids"][i]
-                                            question_text = self.model.tokenizer.decode(question_input_ids, skip_special_tokens=True)
-                                            self.logger.info(f"Predicted Class {cls} Question: '{question_text}'")
-                                            
-                                            # Based on class and question, generate appropriate response
-                                            if cls == 0:  # Tax document
-                                                # Improved detection of statements vs questions
-                                                # A statement is likely if: no question mark, doesn't start with question words,
-                                                # and contains declarative structure
-                                                question_markers = ["?", "how", "what", "which", "where", "when", "who", "why", "can you", "do you", "is there", "are there"]
-                                                statement_markers = ["this is", "there is", "there are", "i see", "i can see", "it is", "i count"]
-                                                
-                                                has_question_marker = any(q in question_text.lower() for q in question_markers)
-                                                has_statement_marker = any(s in question_text.lower() for s in statement_markers)
-                                                
-                                                is_statement = has_statement_marker or not has_question_marker
-                                                
-                                                # Check if this is a question (rather than statement)
-                                                def is_question(text):
-                                                    """Check if this is a question rather than a statement."""
-                                                    text = text.lower().strip()
-                                                    # Look for question marks and question words
-                                                    has_question_mark = "?" in text
-                                                    starts_with_question_word = any(text.startswith(word) for word in 
-                                                                               ["how", "what", "which", "where", "when", "who", "why", "can", "do", "is", "are"])
-                                                    has_question_phrase = any(phrase in text for phrase in 
-                                                                         ["is this", "is it", "are there", "can you", "do you see"])
-                                                    return has_question_mark or starts_with_question_word or has_question_phrase
-                                                
-                                                # Skip responses to statements about tax documents
-                                                if not is_question(question_text) and any(term in question_text.lower() for term in ["tax", "ato", "document", "taxation"]):
-                                                    # Don't respond to statements
-                                                    continue
-                                                elif "tax" in question_text.lower() or "document" in question_text.lower() or "office" in question_text.lower():
-                                                    # Question about document type
-                                                    decoded_texts[i] = "Yes, this is a tax document from the Australian Taxation Office."
-                                                elif "count" in question_text.lower() or "how many" in question_text.lower():
-                                                    # Question about count
-                                                    decoded_texts[i] = "There are 0 receipts in this image. This is a tax document."
-                                                else:
-                                                    # Generic response
-                                                    decoded_texts[i] = "This appears to be a tax document from the Australian Taxation Office."
-                                            else:  # Receipt(s)
-                                                if "how many" in question_text.lower():
-                                                    decoded_texts[i] = f"There {'is' if cls == 1 else 'are'} {cls} receipt{'s' if cls != 1 else ''} in this image."
-                                                elif "count" in question_text.lower():
-                                                    decoded_texts[i] = f"I count {cls} receipt{'s' if cls != 1 else ''} in the image."
-                                                else:
-                                                    decoded_texts[i] = f"I can see {cls} receipt{'s' if cls != 1 else ''} in this image."
-                                        except Exception:
-                                            # Fallback to basic responses
-                                            if cls == 0:
-                                                decoded_texts[i] = "This appears to be a tax document from the Australian Taxation Office."
-                                            else:
-                                                decoded_texts[i] = f"I can see {cls} receipt{'s' if cls != 1 else ''} in this image."
-                                    else:
-                                        decoded_texts[i] = "This appears to be a document from the Australian Tax Office."
-                        
-                        # Get target texts for comparison
-                        tokenizer = self.model.tokenizer
-                        target_texts = []
-                        for i in range(len(decoded_texts)):
-                            try:
-                                # Ensure valid token IDs for decoding
-                                valid_tokens = [t for t in batch["labels"][i] if 0 <= t < tokenizer.vocab_size]
-                                target_texts.append(tokenizer.decode(valid_tokens, skip_special_tokens=True))
-                            except Exception as token_err:
-                                self.logger.warning(f"Error decoding target tokens: {token_err}")
-                                target_texts.append("")  # Use empty string as fallback
-                        
-                        # Add to collected predictions and targets
-                        all_predictions.extend(decoded_texts)
-                        all_targets.extend(target_texts)
-                    except Exception as e:
-                        self.logger.warning(f"Error during text generation: {e}")
-                        # Continue with validation despite errors
+                            # Only include if both prediction and target are non-empty
+                            if target_text.strip():
+                                all_predictions.append(decoded_texts[i])
+                                all_targets.append(target_text)
                 
                 # Update progress bar
                 pbar.set_postfix({
@@ -1061,44 +654,11 @@ class MultimodalTrainer:
             metrics = compute_nlg_metrics(all_predictions, all_targets)
             epoch_bleu = metrics.get("bleu4", 0.0)
             
-            # Log some example predictions
+            # Log a few examples
             self.logger.info("Example validation predictions:")
-            # Store questions for every example
-            questions_to_display = []
-            
-            # First get questions from the batch data
-            for batch_idx, batch_data in enumerate(val_loader):
-                if "question" in batch_data:
-                    questions_to_display.extend(batch_data["question"])
-                elif "original_question" in batch_data:
-                    questions_to_display.extend(batch_data["original_question"])
-                
-                # Only need a few questions
-                if len(questions_to_display) >= 3:
-                    break
-            
-            # In case we couldn't get questions from batch data
-            if not questions_to_display:
-                # Generate reasonable questions from the targets
-                for i in range(min(3, len(all_targets))):
-                    statement = all_targets[i]
-                    
-                    # Process statement to form a question
-                    if statement.lower().startswith("this is"):
-                        question = f"Is this {statement[8:]}?"
-                    elif statement.lower().startswith("i count"):
-                        question = "How many receipts are in this image?"
-                    elif statement.lower().startswith("there"):
-                        question = "Are there any receipts in this image?"
-                    else:
-                        question = "What can you tell me about this image?"
-                        
-                    questions_to_display.append(question)
-            
-            # Display at most 3 examples
-            for i in range(min(3, len(all_predictions), len(questions_to_display))):
-                self.logger.info(f"Question: {questions_to_display[i]}")
-                self.logger.info(f"Answer: {all_predictions[i]}")
+            for i in range(min(3, len(all_predictions))):
+                self.logger.info(f"Prediction: {all_predictions[i]}")
+                self.logger.info(f"Target: {all_targets[i]}")
                 self.logger.info("-" * 30)
         
         # Log to TensorBoard
@@ -1120,17 +680,16 @@ class MultimodalTrainer:
     
     def save_checkpoint(self, epoch: int, metrics: Dict[str, float], is_best: bool = False) -> None:
         """
-        Save model checkpoint with robust error handling and atomic file operations.
+        Save model checkpoint with direct file operations.
         
         Args:
             epoch: Current epoch number
             metrics: Dictionary of metrics to save
             is_best: Whether this is the best model so far
         """
-        import tempfile
-        import shutil
         import os
         
+        # Create checkpoint directory
         checkpoint_dir = self.output_dir / "checkpoints"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         
@@ -1143,123 +702,37 @@ class MultimodalTrainer:
             "history": self.history
         }
         
+        # Add scheduler and scaler if they exist
         if self.scheduler:
             checkpoint["scheduler_state_dict"] = self.scheduler.state_dict()
         
         if self.scaler:
             checkpoint["scaler_state_dict"] = self.scaler.state_dict()
         
-        # Check available disk space before saving
-        try:
-            import shutil
-            total, used, free = shutil.disk_usage(str(checkpoint_dir))
-            free_gb = free / (1024**3)
-            
-            # Get expected checkpoint size (rough estimate)
-            if hasattr(torch.nn.utils, '_flatten_dense_tensors'):
-                # Use PyTorch's utility to get a rough size estimate
-                from torch.nn.utils import _flatten_dense_tensors
-                flat_model_params = _flatten_dense_tensors([p.data for p in self.model.parameters()])
-                model_size_mb = flat_model_params.numel() * flat_model_params.element_size() / (1024**2)
-                expected_file_size_mb = model_size_mb * 1.2  # Add buffer for overhead
-            else:
-                # Rough estimate based on parameter count
-                param_count = sum(p.numel() for p in self.model.parameters())
-                expected_file_size_mb = param_count * 4 / (1024**2) * 1.2  # Assuming float32 params
-                
-            self.logger.info(f"Available disk space: {free_gb:.2f} GB, estimated checkpoint size: {expected_file_size_mb:.2f} MB")
-            
-            if free_gb < (expected_file_size_mb / 1024) * 3:  # Need at least 3x the file size for safe saving
-                self.logger.warning(f"Low disk space detected ({free_gb:.2f} GB). Checkpoint might fail!")
-        except Exception as e:
-            self.logger.warning(f"Could not check disk space: {e}")
-        
-        # Helper function for atomic saving
-        def atomic_torch_save(obj, destination_path):
-            """Save a file atomically by first writing to a temporary file."""
-            # Use tempfile in same directory to ensure it's on the same filesystem for atomic rename
-            temp_dir = os.path.dirname(destination_path)
-            
-            try:
-                # Create a named temporary file in the destination directory
-                with tempfile.NamedTemporaryFile(dir=temp_dir, delete=False, suffix='.pt.tmp') as tmp_file:
-                    temp_path = tmp_file.name
-                    # Close the file first to avoid issues on Windows
-                    tmp_file.close()
-                    
-                    # Save to the temporary file with proper serialization settings
-                    if self.use_safe_serialization:
-                        torch.save(obj, temp_path, _use_new_zipfile_serialization=False)
-                    else:
-                        torch.save(obj, temp_path)
-                    
-                    # Verify file exists and has content
-                    if not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
-                        raise RuntimeError("Failed to write checkpoint to temporary file")
-                    
-                    # Atomic rename to destination
-                    shutil.move(temp_path, destination_path)
-                    return True
-            except Exception as e:
-                self.logger.error(f"Failed to save checkpoint: {e}")
-                # Clean up temporary file if it exists
-                if 'temp_path' in locals() and os.path.exists(temp_path):
-                    try:
-                        os.remove(temp_path)
-                    except:
-                        pass
-                return False
-        
-        # Prepare the checkpoint according to precision settings
-        save_checkpoint = checkpoint
-        
-        # If half precision saving is enabled, convert model weights
+        # Convert to half precision if configured
         if self.save_half_precision:
-            try:
-                half_precision_checkpoint = checkpoint.copy()
-                half_precision_checkpoint["model_state_dict"] = {
-                    k: v.half() if isinstance(v, torch.Tensor) and v.dtype == torch.float32 else v
-                    for k, v in checkpoint["model_state_dict"].items()
-                }
-                save_checkpoint = half_precision_checkpoint
-                self.logger.info("Saving checkpoint in half precision")
-            except Exception as e:
-                self.logger.warning(f"Failed to convert to half precision: {e}")
+            checkpoint["model_state_dict"] = {
+                k: v.half() if isinstance(v, torch.Tensor) and v.dtype == torch.float32 else v
+                for k, v in checkpoint["model_state_dict"].items()
+            }
+            self.logger.info("Saving checkpoint in half precision")
         
-        # Only save the best model - maximum disk space efficiency
+        # Only save if it's the best model (disk space efficiency)
         if is_best:
-            # Delete any existing periodic checkpoints to save space
-            try:
-                for old_ckpt in checkpoint_dir.glob("model_epoch_*.pt"):
-                    os.remove(str(old_ckpt))
-            except Exception:
-                pass
+            # Clear previous checkpoints
+            for old_ckpt in checkpoint_dir.glob("*.pt"):
+                os.remove(str(old_ckpt))
             
-            # Save only the best model
+            # Save best model
             best_path = self.output_dir / "best_model.pt"
-            success = atomic_torch_save(save_checkpoint, str(best_path))
             
-            if success:
-                self.logger.info(f"Best model saved to {best_path}")
+            # Use direct save with configured serialization settings
+            if self.use_safe_serialization:
+                torch.save(checkpoint, str(best_path), _use_new_zipfile_serialization=False)
             else:
-                self.logger.error(f"Failed to save best model to {best_path}")
-                # Try with reduced size as fallback
-                try:
-                    # Create minimal checkpoint with half precision
-                    minimal_checkpoint = {
-                        "epoch": epoch,
-                        "model_state_dict": {
-                            k: v.half() if isinstance(v, torch.Tensor) and v.dtype == torch.float32 else v
-                            for k, v in checkpoint["model_state_dict"].items()
-                        },
-                        "metrics": metrics
-                    }
-                    
-                    # Try saving with reduced size
-                    if atomic_torch_save(minimal_checkpoint, str(best_path)):
-                        self.logger.info(f"Minimal best model saved to {best_path}")
-                except Exception as e:
-                    self.logger.error(f"Failed to save minimal best model: {e}")
+                torch.save(checkpoint, str(best_path))
+                
+            self.logger.info(f"Best model saved to {best_path}")
     
     def train(self) -> Tuple[InternVL2MultimodalModel, Dict[str, List[float]]]:
         """
@@ -1357,8 +830,8 @@ class MultimodalTrainer:
                 self.no_improve_count += 1
                 self.logger.info(f"No improvement for {self.no_improve_count} epochs")
             
-            # Save checkpoint
-            if epoch % self.config["output"].get("save_frequency", 1) == 0 or is_best:
+            # Only save best model checkpoints
+            if is_best:
                 self.save_checkpoint(epoch, val_metrics, is_best)
             
             # Update learning rate

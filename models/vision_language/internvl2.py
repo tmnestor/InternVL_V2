@@ -132,22 +132,9 @@ class InternVL2ReceiptClassifier(nn.Module):
             )
             self.model = AutoModel.from_config(config)
         
-        # Extract vision encoder from the full model
-        if hasattr(self.model, "vision_model"):
-            self.vision_encoder = self.model.vision_model
-            self.logger.info("Using vision_model for vision encoding")
-        else:
-            # For newer versions/implementation, vision_model might be accessed differently
-            try:
-                self.vision_encoder = self.model.vision_encoder
-                self.logger.info("Using vision_encoder for vision encoding")
-            except:
-                try:
-                    self.vision_encoder = self.model.vision_tower
-                    self.logger.info("Using vision_tower for vision encoding")
-                except:
-                    self.logger.warning("Could not extract vision encoder directly. Using full model.")
-                    self.vision_encoder = self.model  # Fallback to using full model
+        # Extract vision encoder from the full model - InternVL2 uses vision_model
+        self.vision_encoder = self.model.vision_model
+        self.logger.info("Using vision_model for vision encoding")
         
         # Specifically disable sliding window attention and other problematic settings
         try:
@@ -281,83 +268,11 @@ class InternVL2ReceiptClassifier(nn.Module):
                 dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
                 pixel_values = pixel_values.to(dtype)
         
-        # Pass through vision encoder
-        try:
-            # Normal execution path (no forced error)
-            vision_outputs = self.vision_encoder(pixel_values=pixel_values)
-            
-            # Try different output structures
-            if hasattr(vision_outputs, 'last_hidden_state'):
-                image_embeds = vision_outputs.last_hidden_state
-            elif hasattr(vision_outputs, 'hidden_states'):
-                image_embeds = vision_outputs.hidden_states[-1]  # Use the last layer
-            elif isinstance(vision_outputs, tuple) and len(vision_outputs) > 0:
-                image_embeds = vision_outputs[0]  # First element is often the hidden states
-            else:
-                # Assume the output is already the embeddings
-                image_embeds = vision_outputs
-                
-        except Exception as e:
-            self.logger.warning(f"Error in forward pass: {e}")
-            # Create a simple vision encoder using a ResNet backbone
-            try:
-                # Try with direct model call first
-                vision_outputs = self.model(pixel_values=pixel_values, output_hidden_states=True)
-                if hasattr(vision_outputs, 'vision_model_output'):
-                    image_embeds = vision_outputs.vision_model_output.last_hidden_state
-                elif hasattr(vision_outputs, 'hidden_states'):
-                    image_embeds = vision_outputs.hidden_states[-1]
-                else:
-                    raise ValueError(
-                        f"Could not extract image embeddings from model outputs: {type(vision_outputs)}"
-                    )
-            except Exception as e2:
-                self.logger.error(
-                    f"Second attempt failed with error: {e2}. " 
-                    f"Using a simplified vision encoder for testing."
-                )
-                
-                # Create a simple CNN feature extractor as fallback
-                if not hasattr(self, '_fallback_encoder'):
-                    self.logger.info("Creating fallback CNN encoder")
-                    import torchvision.models as models
-                    
-                    # Load a pre-trained ResNet model
-                    resnet = models.resnet18(weights="DEFAULT")
-                    # Remove the final fully connected layer
-                    self._fallback_encoder = torch.nn.Sequential(
-                        *[module for i, module in enumerate(resnet.children()) if i < 8]
-                    )
-                    # Freeze parameters
-                    for param in self._fallback_encoder.parameters():
-                        param.requires_grad = False
-                    # Convert to the right dtype
-                    self._fallback_encoder = self._fallback_encoder.to(
-                        pixel_values.dtype
-                    ).to(pixel_values.device)
-                    
-                # Get features from the fallback encoder
-                features = self._fallback_encoder(pixel_values)
-                
-                # Reshape to match expected format (B, seq_len, hidden_dim)
-                batch_size = pixel_values.shape[0]
-                features = features.permute(0, 2, 3, 1)  # B, H, W, C
-                features = features.reshape(batch_size, -1, features.shape[-1])  # B, H*W, C
-                
-                # Limit sequence length to 256 if needed
-                if features.shape[1] > 256:
-                    features = features[:, :256, :]
-                
-                # Pad to 256 tokens if needed
-                if features.shape[1] < 256:
-                    pad_size = 256 - features.shape[1]
-                    padding = torch.zeros(
-                        batch_size, pad_size, features.shape[-1], 
-                        dtype=features.dtype, device=features.device
-                    )
-                    features = torch.cat([features, padding], dim=1)
-                
-                image_embeds = features
+        # Process the images through the vision encoder
+        vision_outputs = self.vision_encoder(pixel_values=pixel_values)
+        
+        # Extract image embeddings - InternVL2 outputs last_hidden_state
+        image_embeds = vision_outputs.last_hidden_state
         
         # Global average pooling over sequence dimension
         pooled_output = image_embeds.mean(dim=1)
@@ -531,147 +446,26 @@ class InternVL2MultimodalModel(nn.Module):
                 pretrained_path, trust_remote_code=True, local_files_only=True
             )
         
-        # Extract vision and language components
-        if hasattr(self.model, "vision_model"):
-            self.vision_encoder = self.model.vision_model
-            self.logger.info("Using vision_model for vision encoding")
-        else:
-            try:
-                self.vision_encoder = self.model.vision_encoder
-                self.logger.info("Using vision_encoder for vision encoding")
-            except:
-                try:
-                    self.vision_encoder = self.model.vision_tower
-                    self.logger.info("Using vision_tower for vision encoding")
-                except:
-                    self.logger.warning("Could not extract vision encoder directly. Using full model.")
-                    self.vision_encoder = self.model
+        # Extract vision encoder from InternVL2 model
+        self.vision_encoder = self.model.vision_model
+        self.logger.info("Using vision_model for vision encoding")
         
-        # Get the language model component - check all possible locations
-        # Get the model type to help with debugging
+        # Get the language model component for InternVL2
         model_type = type(self.model).__name__
         self.logger.info(f"Model class type: {model_type}")
         
-        # Try to get model_type from config if available
+        # Log model type from config
         if hasattr(self.model, "config") and hasattr(self.model.config, "model_type"):
             config_model_type = self.model.config.model_type
             self.logger.info(f"Model config type: {config_model_type}")
         
-        # Try all possible attribute names for language model component
-        if hasattr(self.model, "llm"):
-            self.language_model = self.model.llm
-            self.logger.info("Using model.llm for text encoding")
-        elif hasattr(self.model, "language_model"):
+        # InternVL2 uses different structures, but language_model is most common
+        if hasattr(self.model, "language_model"):
             self.language_model = self.model.language_model
             self.logger.info("Using model.language_model for text encoding")
-        elif hasattr(self.model, "text_model"):
-            self.language_model = self.model.text_model
-            self.logger.info("Using model.text_model for text encoding")
-        elif hasattr(self.model, "text_encoder"):
-            self.language_model = self.model.text_encoder
-            self.logger.info("Using model.text_encoder for text encoding")
-        elif hasattr(self.model, "LLM"):
-            self.language_model = self.model.LLM
-            self.logger.info("Using model.LLM for text encoding")
-        elif hasattr(self.model, "llama"):
-            self.language_model = self.model.llama
-            self.logger.info("Using model.llama for text encoding")
-        elif model_type == "MPNetModel" or hasattr(self.model, "encoder"):
-            # For encoder-only models like MPNet - use the model itself as the language model
-            self.logger.info(f"Using {model_type} directly as language model")
-            self.language_model = self.model
         else:
-            # If we still can't find the language model, print model attributes to help debug
-            self.logger.warning(f"Could not find language model component. Examining model structure...")
-            
-            # This will help debug model structure by printing all top-level attributes
-            all_attributes = [attr for attr in dir(self.model) if not attr.startswith('_')]
-            self.logger.info(f"Model attributes: {all_attributes}")
-            
-            # Check for nested attributes that might contain the language model
-            potential_containers = ["model", "transformer", "encoder", "decoder"]
-            for container in potential_containers:
-                if hasattr(self.model, container):
-                    container_obj = getattr(self.model, container)
-                    container_attrs = [attr for attr in dir(container_obj) if not attr.startswith('_')]
-                    self.logger.info(f"Attributes in model.{container}: {container_attrs}")
-            
-            # If language model component was deleted, restore it
-            self.logger.warning("Language model not found. Loading a new language model instance.")
-            try:
-                # Try to get a compatible language model from the hub
-                # First detect the model type to determine which class to use
-                if hasattr(self.model, "config") and hasattr(self.model.config, "model_type"):
-                    model_type = self.model.config.model_type
-                    self.logger.info(f"Detected model type from config: {model_type}")
-                    
-                    # For InternVL models, use their integrated language model component
-                    if model_type == "internvl_chat" or model_type == "internvl2_chat" or "internvl" in model_type.lower():
-                        # InternVL already has a language model built in
-                        self.logger.info(f"Using integrated language model from {model_type}")
-                        
-                        # Try to extract the language model component - check all common attribute names
-                        if hasattr(self.model, "llm"):
-                            self.language_model = self.model.llm
-                            self.logger.info("Using model.llm as language model")
-                        elif hasattr(self.model, "language_model"):
-                            self.language_model = self.model.language_model
-                            self.logger.info("Using model.language_model as language model")
-                        elif hasattr(self.model, "text_model"):
-                            self.language_model = self.model.text_model
-                            self.logger.info("Using model.text_model as language model")
-                        elif hasattr(self.model, "LLM"):
-                            self.language_model = self.model.LLM
-                            self.logger.info("Using model.LLM as language model")
-                        elif hasattr(self.model, "llama"):
-                            self.language_model = self.model.llama
-                            self.logger.info("Using model.llama as language model")
-                        else:
-                            # If can't extract specific component, use the whole model
-                            self.logger.warning("Could not find specific language model component. Using full model.")
-                            self.language_model = self.model
-                    elif model_type in ["mpnet", "bert", "roberta", "electra"]:
-                        # These are encoder-only models - not ideal for generation
-                        self.logger.warning(f"Using encoder-only model {model_type} - limited generation capability")
-                        self.language_model = AutoModel.from_pretrained(
-                            pretrained_path,
-                            trust_remote_code=True,
-                            local_files_only=True
-                        )
-                        self.logger.info(f"Loaded {model_type} as language model with AutoModel")
-                    else:
-                        # Default to causal LM
-                        self.language_model = AutoModelForCausalLM.from_pretrained(
-                            pretrained_path,
-                            trust_remote_code=True,
-                            local_files_only=True
-                        )
-                        self.logger.info(f"Loaded language model as AutoModelForCausalLM")
-                else:
-                    # Try to extract language model component directly
-                    if hasattr(self.model, "llm"):
-                        self.language_model = self.model.llm
-                        self.logger.info("Using model.llm as language model")
-                    elif hasattr(self.model, "language_model"):
-                        self.language_model = self.model.language_model
-                        self.logger.info("Using model.language_model as language model")
-                    elif hasattr(self.model, "text_model"):
-                        self.language_model = self.model.text_model
-                        self.logger.info("Using model.text_model as language model") 
-                    else:
-                        # No config type available, use AutoModel as fallback
-                        self.language_model = AutoModel.from_pretrained(
-                            pretrained_path,
-                            trust_remote_code=True,
-                            local_files_only=True
-                        )
-                        self.logger.info("Loaded language model as generic AutoModel")
-            except Exception as e:
-                self.logger.error(f"Error loading language model: {e}")
-                raise ValueError(
-                    "Could not instantiate a language model. "
-                    "Please ensure the model has a language component."
-                )
+            self.logger.error("Could not find language_model component in InternVL2 model.")
+            raise ValueError("InternVL2 model is missing language_model component.")
         
         # Enable gradient checkpointing for model components to save memory
         try:
@@ -852,14 +646,16 @@ class InternVL2MultimodalModel(nn.Module):
             # Initialize template selector
             from models.components.template_system import TemplateSelector
             self.template_selector = TemplateSelector()
+            # Rename the templates attribute to avoid conflict with model attributes
+            if hasattr(self.template_selector, 'templates'):
+                # Rename the attribute to avoid conflict
+                setattr(self.template_selector, '_template_registry', self.template_selector.templates)
+                # Delete the original attribute
+                delattr(self.template_selector, 'templates')
             self.logger.info("Initialized template selector")
             
-            # Initialize detail extractor
-            from models.components.detail_extractor import DetailExtractor
-            self.detail_extractor = DetailExtractor(
-                input_dim=vision_hidden_size,
-                hidden_dim=512
-            )
+            # Detail extractor has been deprecated and removed
+            # Visual features are now processed directly by the vision encoder and cross-attention
             self.logger.info("Initialized detail extractor")
             
         except Exception as e:
@@ -909,118 +705,64 @@ class InternVL2MultimodalModel(nn.Module):
         # Use torch.amp.autocast for reduced precision during forward (updated API)
         with torch.amp.autocast(device_type='cuda' if torch.cuda.is_available() else 'cpu', 
                                enabled=torch.cuda.is_available() and self.training):
+            # Get vision outputs - specifically for InternVL2 vision model
             vision_outputs = self.vision_encoder(pixel_values=pixel_values)
             
-            # Extract image embeddings
-            if hasattr(vision_outputs, 'last_hidden_state'):
-                image_embeds = vision_outputs.last_hidden_state
-            elif hasattr(vision_outputs, 'hidden_states'):
-                image_embeds = vision_outputs.hidden_states[-1]
-            elif isinstance(vision_outputs, tuple) and len(vision_outputs) > 0:
-                image_embeds = vision_outputs[0]
-            else:
-                image_embeds = vision_outputs
+            # Extract image embeddings from the vision model's last hidden state
+            image_embeds = vision_outputs.last_hidden_state
             
             # If text input is provided, process it
             if text_input_ids is not None:
-                # Text encoding (also with gradient checkpointing if possible)
+                # Enable gradient checkpointing during training
                 if hasattr(self.language_model, 'gradient_checkpointing') and self.training:
                     self.language_model.gradient_checkpointing = True
                 
-                # Try to reduce language model memory usage
-                # Check the type of language model to determine the right arguments
-                model_type = type(self.language_model).__name__
-                self.logger.debug(f"Language model type: {model_type}")
+                # Process text with InternVL2's language model
+                text_outputs = self.language_model(
+                    input_ids=text_input_ids,
+                    attention_mask=attention_mask,
+                    output_hidden_states=True,
+                    return_dict=True,
+                    use_cache=False  # Disable KV caching to save memory during training
+                )
                 
-                # Get the valid parameters for this model's forward method
-                if hasattr(self.language_model, "__call__") and hasattr(self.language_model.__call__, "__code__"):
-                    # Inspect the function signature to see what parameters it accepts
-                    sig = inspect.signature(self.language_model.forward)
-                    valid_params = sig.parameters.keys()
-                    self.logger.debug(f"Language model valid params: {valid_params}")
-                    
-                    # Create a dictionary of parameters that are valid for this model
-                    params = {
-                        "input_ids": text_input_ids,
-                        "attention_mask": attention_mask,
-                    }
-                    
-                    # Only add parameters that are valid for this model
-                    if "output_hidden_states" in valid_params:
-                        params["output_hidden_states"] = True
-                    if "return_dict" in valid_params:
-                        params["return_dict"] = True
-                    if "use_cache" in valid_params:
-                        params["use_cache"] = False
-                    
-                    # Call the model with the valid parameters
-                    text_outputs = self.language_model(**params)
-                elif model_type == "MPNetModel" or model_type.endswith(("BertModel", "RobertaModel", "ElectraModel")):
-                    # For encoder-only models, don't use use_cache parameter
-                    text_outputs = self.language_model(
-                        input_ids=text_input_ids,
-                        attention_mask=attention_mask,
-                        output_hidden_states=True,
-                        return_dict=True
-                    )
-                else:
-                    # For decoder models or unknown types, try with use_cache parameter first
-                    try:
-                        text_outputs = self.language_model(
-                            input_ids=text_input_ids,
-                            attention_mask=attention_mask,
-                            output_hidden_states=True,
-                            return_dict=True,
-                            use_cache=False  # Disable KV caching to save memory during training
-                        )
-                    except (TypeError, ValueError, RuntimeError) as e:
-                        self.logger.debug(f"Error with use_cache=False: {e}")
-                        # Fallback if use_cache not supported or other errors
-                        try:
-                            text_outputs = self.language_model(
-                                input_ids=text_input_ids,
-                                attention_mask=attention_mask,
-                                output_hidden_states=True,
-                                return_dict=True
-                            )
-                        except (TypeError, ValueError, RuntimeError) as e2:
-                            self.logger.debug(f"Error with standard arguments: {e2}")
-                            # Last-resort fallback with minimal arguments
-                            text_outputs = self.language_model(
-                                input_ids=text_input_ids,
-                                attention_mask=attention_mask
-                            )
+                # Get text embeddings from model outputs, accounting for different output formats
                 
-                # Extract text embeddings - handle all possible output formats
+                # First run - inspect and log the output format for debugging
+                if not hasattr(self, '_output_format_logged') and self.logger:
+                    self._output_format_logged = True
+                    output_type = type(text_outputs).__name__
+                    self.logger.info(f"Language model output type: {output_type}")
+                    # Log available attributes
+                    output_attrs = [attr for attr in dir(text_outputs) if not attr.startswith('_')]
+                    self.logger.info(f"Available attributes: {', '.join(output_attrs)}")
+                    
+                    # Log hidden states format
+                    if hasattr(text_outputs, 'hidden_states') and text_outputs.hidden_states is not None:
+                        if isinstance(text_outputs.hidden_states, tuple):
+                            self.logger.info(f"hidden_states is a tuple of length {len(text_outputs.hidden_states)}")
+                            first_hs = text_outputs.hidden_states[0]
+                            self.logger.info(f"First hidden state shape: {first_hs.shape}")
+                            last_hs = text_outputs.hidden_states[-1]
+                            self.logger.info(f"Last hidden state shape: {last_hs.shape}")
+                
+                # Extract embeddings based on available attributes
                 if hasattr(text_outputs, 'last_hidden_state'):
+                    # Standard format (most models)
                     text_embeds = text_outputs.last_hidden_state
-                    self.logger.debug("Using text_outputs.last_hidden_state for text embeddings")
                 elif hasattr(text_outputs, 'hidden_states') and text_outputs.hidden_states is not None:
-                    # For models that return hidden_states as a list/tuple
-                    if isinstance(text_outputs.hidden_states, (list, tuple)):
-                        text_embeds = text_outputs.hidden_states[-1]  # Use last layer
-                        self.logger.debug("Using text_outputs.hidden_states[-1] for text embeddings")
-                    else:
-                        text_embeds = text_outputs.hidden_states
-                        self.logger.debug("Using text_outputs.hidden_states directly for text embeddings")
-                elif isinstance(text_outputs, dict) and 'hidden_states' in text_outputs:
-                    # Get the last element from hidden states tuple
-                    if isinstance(text_outputs['hidden_states'], (list, tuple)):
-                        text_embeds = text_outputs['hidden_states'][-1]
-                        self.logger.debug("Using text_outputs['hidden_states'][-1] for text embeddings")
-                    else:
-                        text_embeds = text_outputs['hidden_states']
-                        self.logger.debug("Using text_outputs['hidden_states'] directly for text embeddings")
+                    # Some models provide hidden_states tuple
+                    text_embeds = text_outputs.hidden_states[-1]
+                elif hasattr(text_outputs, 'logits'):
+                    # CausalLMOutputWithPast format (common in newer models with no hidden states)
+                    text_embeds = text_outputs.logits
+                    self.logger.warning("Using logits as embeddings - this may impact performance")
                 else:
-                    # Last resort - try direct extraction
-                    if isinstance(text_outputs, tuple) and len(text_outputs) > 0:
-                        # First element is often the output embeddings in HF models
-                        text_embeds = text_outputs[0]
-                        self.logger.debug("Using text_outputs[0] for text embeddings")
-                    else:
-                        # Use text_outputs directly if nothing else works
-                        text_embeds = text_outputs
-                        self.logger.warning("Using text_outputs directly - this may cause issues")
+                    # If we can't find proper embeddings, log the output structure and raise error
+                    output_attrs = [attr for attr in dir(text_outputs) if not attr.startswith('_')]
+                    error_msg = f"Unable to extract text embeddings. Available attributes: {', '.join(output_attrs)}"
+                    self.logger.error(error_msg)
+                    raise ValueError(error_msg)
                 
                 # Clear text_outputs to free memory early
                 del text_outputs
@@ -1107,10 +849,8 @@ class InternVL2MultimodalModel(nn.Module):
                         
                         self.logger.debug("Using shared InternVL2 tokenizer and language model components")
                 
-                # Extract document details if detail extractor exists
+                # Detail extraction is now handled by the unified model architecture
                 detail_logits = None
-                if hasattr(self, 'detail_extractor') and self.training:
-                    detail_logits, _ = self.detail_extractor(image_embeds)
                 
                 # Clear image_embeds as soon as possible to free memory
                 del image_embeds
@@ -1175,100 +915,57 @@ class InternVL2MultimodalModel(nn.Module):
         if pixel_values.dtype != torch.float32:
             pixel_values = pixel_values.to(torch.float32)
         
-        # Run forward pass to get multimodal embeddings
-        try:
-            with torch.no_grad():  # Use no_grad for inference
-                # Get question text
-                question = self.tokenizer.decode(text_input_ids[0], skip_special_tokens=True)
-                self.logger.info(f"Question text: '{question}'")
-                
-                # Classify question type if question classifier exists
-                if hasattr(self, 'question_classifier'):
-                    # We need proper error handling here - don't silently fail
-                    try:
-                        question_type = self.question_classifier.predict_question_type(question)
-                        self.logger.info(f"Classified question as: {question_type}")
-                    except Exception as e:
-                        # Log the error but continue with default type
-                        self.logger.error(f"Question classification failed: {e}")
-                        # Use a default question type
-                        question_type = "DOCUMENT_TYPE"
-                        self.logger.info(f"Using default question type: {question_type}")
-                else:
-                    # Not having a question classifier is an issue but we can continue with defaults
-                    self.logger.error("No question classifier found in model")
-                    # Default to document type questions
-                    question_type = "DOCUMENT_TYPE"
-                    self.logger.info(f"Using default question type: {question_type}")
-                
-                # Generate embeddings and get document class
-                outputs = self.forward(
-                    pixel_values=pixel_values, 
-                    text_input_ids=text_input_ids, 
-                    attention_mask=attention_mask
+        # Generate response using no_grad for inference
+        with torch.no_grad():
+            # Get question text
+            question = self.tokenizer.decode(text_input_ids[0], skip_special_tokens=True)
+            self.logger.info(f"Question text: '{question}'")
+            
+            # Classify question type
+            question_type = self.question_classifier.predict_question_type(question)
+            self.logger.info(f"Classified question as: {question_type}")
+            
+            # Generate embeddings and get document class
+            outputs = self.forward(
+                pixel_values=pixel_values, 
+                text_input_ids=text_input_ids, 
+                attention_mask=attention_mask
+            )
+            
+            # Get multimodal context and class predictions
+            multimodal_context = outputs["multimodal_embeddings"]
+            _, predicted_class = outputs["logits"].max(1)
+            
+            # Detail extraction is now integrated into the unified vision-language processing
+            extracted_details = {}
+            
+            # Use template system to generate responses
+            responses = []
+            for idx, cls in enumerate(predicted_class):
+                response = self.template_selector.select_template(
+                    question_type,
+                    cls.item(),
+                    extracted_details
                 )
-                
-                # Get multimodal context for generation
-                multimodal_context = outputs["multimodal_embeddings"]
-                
-                # Get class predictions
-                _, predicted_class = outputs["logits"].max(1)
-                
-                # Extract document details if detail extractor exists
-                extracted_details = {}
-                if hasattr(self, 'detail_extractor') and question_type in [
-                    "DETAIL_EXTRACTION", "PAYMENT_INFO", "AMOUNT", "TAX_INFO"
-                ]:
-                    extracted_details = self.detail_extractor.extract_details(
-                        pixel_values, question_type
-                    )
-                
-                # Select and fill template if template selector exists
-                if hasattr(self, 'template_selector'):
-                    # Use advanced template system
-                    responses = []
-                    for idx, cls in enumerate(predicted_class):
-                        response = self.template_selector.select_template(
-                            question_type,
-                            cls.item(),
-                            extracted_details
-                        )
-                        responses.append(response)
-                else:
-                    # Fallback to simple templates
-                    responses = []
-                    for cls in predicted_class:
-                        if cls == 0:
-                            template = "Yes, this appears to be a tax document from the Australian Taxation Office."
-                        else:
-                            # For receipt classes (1+), indicate number of receipts
-                            template = f"I can see {cls.item()} receipt{'s' if cls.item() != 1 else ''} in this image."
-                        responses.append(template)
-                
-                # Create token IDs for responses
-                batch_size = text_input_ids.shape[0]
-                dummy_ids = []
-                for response in responses:
-                    # Encode each response
-                    encoded = self.tokenizer.encode(response, add_special_tokens=True)
-                    # Pad or truncate to max_length
-                    if len(encoded) > max_length:
-                        encoded = encoded[:max_length]
-                    else:
-                        encoded += [self.tokenizer.pad_token_id] * (max_length - len(encoded))
-                    dummy_ids.append(encoded)
-                
-                # Convert to tensor
-                generated_ids = torch.tensor(dummy_ids, device=text_input_ids.device, dtype=torch.long)
-                
-                # Return the generated IDs and responses
-                return generated_ids, responses
-                
-        except Exception as e:
-            # Fallback if generation fails completely
-            self.logger.warning(f"Error in text generation: {e}")
+                responses.append(response)
+            
+            # Create token IDs for responses
             batch_size = text_input_ids.shape[0]
-            return torch.zeros((batch_size, 2), dtype=torch.long, device=text_input_ids.device), ["Error in text generation"] * batch_size
+            tokens_list = []
+            for response in responses:
+                # Encode each response
+                encoded = self.tokenizer.encode(response, add_special_tokens=True)
+                # Pad or truncate to max_length
+                if len(encoded) > max_length:
+                    encoded = encoded[:max_length]
+                else:
+                    encoded += [self.tokenizer.pad_token_id] * (max_length - len(encoded))
+                tokens_list.append(encoded)
+            
+            # Convert to tensor
+            generated_ids = torch.tensor(tokens_list, device=text_input_ids.device, dtype=torch.long)
+            
+            return generated_ids, responses
     
     def prepare_inputs(
         self, 
@@ -1285,39 +982,6 @@ class InternVL2MultimodalModel(nn.Module):
         Returns:
             Dictionary of model inputs
         """
-        # Ensure the tokenizer is properly initialized
-        if not hasattr(self, 'tokenizer') or self.tokenizer is None:
-            # This should never happen with proper initialization, but add a fallback
-            try:
-                from transformers import AutoTokenizer
-                self.tokenizer = AutoTokenizer.from_pretrained(
-                    self.config["model"]["pretrained_path"],
-                    trust_remote_code=True,
-                    local_files_only=True
-                )
-            except Exception as e:
-                raise ValueError(f"Could not initialize tokenizer: {e}")
-        
-        # Prepare template responses in case generation fails
-        class_templates = [
-            "This is a tax document from the Australian Taxation Office.",
-            "I can see 1 receipt in this image.",
-            "I can see 2 receipts in this image.",
-            "I can see 3 receipts in this image.",
-            "I can see 4 receipts in this image.",
-            "I can see 5 receipts in this image."
-        ]
-        
-        # Pre-encode these templates for potential fallback
-        encoded_templates = self.tokenizer(
-            class_templates,
-            padding="max_length",
-            truncation=True,
-            max_length=128,
-            return_tensors="pt"
-        )
-        self._encoded_templates = encoded_templates.input_ids
-        
         # Tokenize text prompts
         tokenized = self.tokenizer(
             text_prompts,

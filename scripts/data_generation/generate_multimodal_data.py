@@ -27,18 +27,22 @@ def prepare_datasets(
     seed=42,
     image_size=448,
     num_samples=1000,
+    cleanup_temp=True,
 ):
     """
     Create and split multimodal dataset for training, validation, and testing.
     
     Args:
-        base_data_dir: Base directory for storing data
+        base_data_dir: Base directory for storing temporary data
         output_dir: Output directory for the split datasets
         split_sizes: Tuple of (train, val, test) split ratios
         seed: Random seed for reproducibility
         image_size: Size of the images
         num_samples: Number of samples to generate
+        cleanup_temp: Whether to delete temporary data after processing
     """
+    import shutil
+    
     # Create directories
     base_dir = Path(base_data_dir)
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -137,19 +141,33 @@ def prepare_datasets(
         json.dump(config, f, indent=2)
     
     print(f"Dataset created successfully in {output_path}")
+    
+    # Clean up temporary data if requested
+    if cleanup_temp:
+        temp_data_dir = base_dir / "multimodal_data"
+        if temp_data_dir.exists():
+            print(f"Cleaning up temporary data in {temp_data_dir}")
+            try:
+                shutil.rmtree(temp_data_dir)
+                print(f"Successfully removed temporary data directory: {temp_data_dir}")
+            except Exception as e:
+                print(f"Warning: Failed to remove temporary data: {e}")
+    
     return config
 
 
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Generate multimodal receipt dataset")
-    parser.add_argument("--base_dir", type=str, default="data/raw", help="Base directory for raw data")
-    parser.add_argument("--output_dir", type=str, default="data/multimodal", 
+    parser.add_argument("--base_dir", type=str, default="data/raw", help="Base directory for temporary raw data")
+    parser.add_argument("--output_dir", type=str, default="datasets/multimodal", 
                         help="Output directory for processed datasets")
     parser.add_argument("--num_samples", type=int, default=1000, help="Number of samples to generate")
     parser.add_argument("--image_size", type=int, default=448, 
                         help="Image size (default: 448 for InternVL2)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--keep_temp", action="store_true", 
+                        help="Keep temporary data files after processing (default: delete)")
     return parser.parse_args()
 
 
@@ -167,4 +185,16 @@ if __name__ == "__main__":
         image_size=args.image_size,
         num_samples=args.num_samples,
         seed=args.seed,
+        cleanup_temp=not args.keep_temp,  # Clean up temp files unless --keep_temp is specified
     )
+    
+    # If we've deleted the temp data, also check if the base directory is empty and remove it
+    if not args.keep_temp:
+        base_dir = Path(args.base_dir)
+        try:
+            # Check if directory exists and is empty
+            if base_dir.exists() and not any(base_dir.iterdir()):
+                base_dir.rmdir()
+                print(f"Removed empty base directory: {base_dir}")
+        except Exception as e:
+            print(f"Warning: Failed to remove base directory: {e}")

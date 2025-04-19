@@ -17,7 +17,7 @@ class TemplateSelector:
     
     def __init__(self):
         """Initialize template selector with predefined templates."""
-        self.templates = self._initialize_templates()
+        self._template_registry = self._initialize_templates()
     
     def _initialize_templates(self) -> Dict[str, Dict[str, str]]:
         """
@@ -110,9 +110,9 @@ class TemplateSelector:
         """
         if extracted_details is None:
             extracted_details = {}
-            
+        
         # Get templates for the question type, falling back to DEFAULT if not found
-        templates = self.templates.get(question_type, self.templates["DEFAULT"])
+        templates = self._template_registry.get(question_type, self._template_registry.get("DEFAULT", {}))
         
         # Select and fill template based on document class and question type
         if question_type == "DOCUMENT_TYPE":
@@ -201,7 +201,10 @@ class TemplateSelector:
                 return templates["default"]
         
         # Fallback template
-        return self.templates["DEFAULT"]["default"].format(
+        default_templates = self._template_registry.get("DEFAULT", {})
+        default_template = default_templates.get("default", "This image contains a {document_type}.")
+        
+        return default_template.format(
             document_type="tax document" if document_class == 0 else "receipt",
             count=document_class if document_class > 0 else 0
         )

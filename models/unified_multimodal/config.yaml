@@ -4,12 +4,7 @@ data:
   image_size: 448
   max_text_length: 128
   num_workers: 1
-  test_csv: data/multimodal/test/metadata.csv
-  test_dir: data/multimodal/test/images
-  train_csv: data/multimodal/train/metadata.csv
-  train_dir: data/multimodal/train/images
-  val_csv: data/multimodal/val/metadata.csv
-  val_dir: data/multimodal/val/images
+  root_dir: data/multimodal
 evaluation:
   batch_size: 16
   metrics:
@@ -20,7 +15,7 @@ evaluation:
     precision: true
     recall: true
     rouge: true
-  model_path: models/multimodal/best_model.pt
+  model_path: models/unified_multimodal/best_model.pt
   save_predictions: true
 log_level: INFO
 model:
@@ -39,9 +34,9 @@ model:
   use_8bit: false
 output:
   checkpoint_frequency: 1
-  log_dir: logs/multimodal
-  model_dir: models/multimodal
-  results_dir: results/multimodal
+  log_dir: logs/unified_multimodal
+  model_dir: models/unified_multimodal
+  results_dir: results/unified_multimodal
   save_best_only: false
   save_frequency: 1
   tensorboard: true
