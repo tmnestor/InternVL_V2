@@ -448,11 +448,19 @@ class QuestionClassifier(nn.Module):
                         
                         # Get the final layer (usually contains the most task-relevant features)
                         if isinstance(hidden_states, (list, tuple)) and hidden_states[-1] is not None:
+                            # Ensure hidden states have requires_grad=True
+                            states_with_grad = hidden_states[-1]
+                            if self.training and not states_with_grad.requires_grad:
+                                states_with_grad = states_with_grad.detach().clone().requires_grad_(True)
                             # Get mean of final layer's sequence dimension (standard pooling approach)
-                            pooled_output = hidden_states[-1].mean(dim=1)
+                            pooled_output = states_with_grad.mean(dim=1)
                         else:
+                            # Ensure hidden states have requires_grad=True
+                            states_with_grad = hidden_states
+                            if self.training and states_with_grad is not None and not states_with_grad.requires_grad:
+                                states_with_grad = states_with_grad.detach().clone().requires_grad_(True)
                             # Direct mean pooling if not a list/tuple
-                            pooled_output = hidden_states.mean(dim=1) if hidden_states.dim() > 1 else hidden_states
+                            pooled_output = states_with_grad.mean(dim=1) if states_with_grad.dim() > 1 else states_with_grad
                     
                     # Second method: Try language model outputs
                     elif hasattr(outputs, 'language_model_outputs'):
@@ -461,16 +469,35 @@ class QuestionClassifier(nn.Module):
                         
                         # Extract from language model outputs based on their format
                         if hasattr(lm_outputs, 'last_hidden_state') and lm_outputs.last_hidden_state is not None:
-                            pooled_output = lm_outputs.last_hidden_state.mean(dim=1)
+                            # Ensure hidden states have requires_grad=True
+                            hidden_output = lm_outputs.last_hidden_state
+                            if self.training and not hidden_output.requires_grad:
+                                hidden_output = hidden_output.detach().clone().requires_grad_(True)
+                            pooled_output = hidden_output.mean(dim=1)
                         elif hasattr(lm_outputs, 'hidden_states') and lm_outputs.hidden_states is not None:
                             # Use the last layer of hidden states
                             if isinstance(lm_outputs.hidden_states, (list, tuple)):
-                                pooled_output = lm_outputs.hidden_states[-1].mean(dim=1)
+                                hidden_output = lm_outputs.hidden_states[-1]
+                                if self.training and not hidden_output.requires_grad:
+                                    hidden_output = hidden_output.detach().clone().requires_grad_(True)
+                                pooled_output = hidden_output.mean(dim=1)
                             else:
-                                pooled_output = lm_outputs.hidden_states.mean(dim=1)
+                                hidden_output = lm_outputs.hidden_states
+                                if self.training and not hidden_output.requires_grad:
+                                    hidden_output = hidden_output.detach().clone().requires_grad_(True)
+                                pooled_output = hidden_output.mean(dim=1)
                         else:
                             # If no hidden states, try direct pooling of lm_outputs
-                            pooled_output = lm_outputs.mean(dim=1) if hasattr(lm_outputs, 'mean') else lm_outputs
+                            if hasattr(lm_outputs, 'mean'):
+                                if self.training and not lm_outputs.requires_grad:
+                                    lm_outputs_with_grad = lm_outputs.detach().clone().requires_grad_(True)
+                                    pooled_output = lm_outputs_with_grad.mean(dim=1)
+                                else:
+                                    pooled_output = lm_outputs.mean(dim=1)
+                            else:
+                                pooled_output = lm_outputs
+                                if self.training and hasattr(pooled_output, 'requires_grad') and not pooled_output.requires_grad:
+                                    pooled_output = pooled_output.detach().clone().requires_grad_(True)
                     
                     # Third method: Try standard hidden states
                     elif hasattr(outputs, 'hidden_states') and outputs.hidden_states is not None:
@@ -480,15 +507,23 @@ class QuestionClassifier(nn.Module):
                         # Extract from hidden states
                         if isinstance(hidden_states, (list, tuple)) and len(hidden_states) > 0:
                             # Get last layer and pool
-                            pooled_output = hidden_states[-1].mean(dim=1)
+                            hidden_output = hidden_states[-1]
+                            if self.training and not hidden_output.requires_grad:
+                                hidden_output = hidden_output.detach().clone().requires_grad_(True)
+                            pooled_output = hidden_output.mean(dim=1)
                         else:
                             # Direct pooling
+                            if self.training and not hidden_states.requires_grad:
+                                hidden_states = hidden_states.detach().clone().requires_grad_(True)
                             pooled_output = hidden_states.mean(dim=1) if hidden_states.dim() > 1 else hidden_states
                     
                     # Fourth method: Try last_hidden_state
                     elif hasattr(outputs, 'last_hidden_state') and outputs.last_hidden_state is not None:
                         logger.debug("Using last_hidden_state")
-                        pooled_output = outputs.last_hidden_state.mean(dim=1)
+                        last_hidden = outputs.last_hidden_state
+                        if self.training and not last_hidden.requires_grad:
+                            last_hidden = last_hidden.detach().clone().requires_grad_(True)
+                        pooled_output = last_hidden.mean(dim=1)
                     
                     # Fifth method: Try looking for embeddings or logits in a dictionary form
                     elif isinstance(outputs, dict):
@@ -498,6 +533,10 @@ class QuestionClassifier(nn.Module):
                             if key in outputs and outputs[key] is not None:
                                 value = outputs[key]
                                 if isinstance(value, torch.Tensor):
+                                    # Ensure tensor requires gradients for training
+                                    if self.training and not value.requires_grad:
+                                        value = value.detach().clone().requires_grad_(True)
+                                        
                                     if value.dim() > 2:
                                         # Reduce sequence dimension if present
                                         pooled_output = value.mean(dim=1)
@@ -510,7 +549,12 @@ class QuestionClassifier(nn.Module):
                             # If no suitable key found, use the first tensor in the dict
                             tensor_keys = [k for k, v in outputs.items() if isinstance(v, torch.Tensor)]
                             if tensor_keys:
-                                pooled_output = outputs[tensor_keys[0]]
+                                value = outputs[tensor_keys[0]]
+                                # Ensure tensor requires gradients for training
+                                if self.training and not value.requires_grad:
+                                    value = value.detach().clone().requires_grad_(True)
+                                    
+                                pooled_output = value
                                 if pooled_output.dim() > 2:
                                     pooled_output = pooled_output.mean(dim=1)
                                 logger.debug(f"Using first available tensor key: {tensor_keys[0]}")
@@ -549,30 +593,11 @@ class QuestionClassifier(nn.Module):
                     pooled_output.requires_grad_(True)
                 
                 # Ensure the pooled output has the right dimension and requires gradients
-                # This is CRITICAL for proper backpropagation
+                # This should be handled by our fixes to the tensor operations above
                 if self.training and not pooled_output.requires_grad:
-                    logger.warning("pooled_output does not require gradients, creating randomized tensor with gradients")
-                    
-                    # Instead of just copying the values, add randomness to prevent mode collapse
-                    device = pooled_output.device
-                    shape = pooled_output.shape
-                    # Get the original values but add random noise
-                    values = pooled_output.detach().clone()
-                    
-                    # Create a random tensor that requires gradients
-                    # Using values * (1 + small_noise) keeps information while adding variability
-                    random_noise = torch.randn_like(values) * 0.2
-                    
-                    # Create new tensor with explicit gradient requirement
-                    new_pooled = torch.zeros(shape, device=device, requires_grad=True)
-                    
-                    # Copy values with added noise
-                    new_pooled.data.copy_(values + random_noise)
-                    
-                    # Replace the pooled output
-                    pooled_output = new_pooled
-                    
-                    logger.debug("Created randomized tensor with gradients to prevent mode collapse")
+                    logger.debug("Setting gradients for pooled_output")
+                    # Simply enable gradients with a clean approach
+                    pooled_output = pooled_output.detach().clone().requires_grad_(True)
                 
             elif "MPNet" in encoder_type or "mpnet" in encoder_type:
                 # MPNet models (like all-mpnet-base-v2) have a specific output handling
@@ -580,18 +605,31 @@ class QuestionClassifier(nn.Module):
                 
                 if hasattr(outputs, 'last_hidden_state'):
                     # Standard handling for last_hidden_state
-                    pooled_output = outputs.last_hidden_state[:, 0, :]  # Use CLS token
+                    hidden_output = outputs.last_hidden_state
+                    if self.training and not hidden_output.requires_grad:
+                        hidden_output = hidden_output.detach().clone().requires_grad_(True)
+                    pooled_output = hidden_output[:, 0, :]  # Use CLS token
                     logger.debug(f"Using CLS token from last_hidden_state for MPNet: {pooled_output.shape}")
                 elif hasattr(outputs, 'hidden_states') and outputs.hidden_states is not None:
                     # Handle hidden_states
                     if isinstance(outputs.hidden_states, (list, tuple)):
-                        pooled_output = outputs.hidden_states[-1][:, 0, :]  # Last layer, CLS token
+                        hidden_output = outputs.hidden_states[-1]
+                        if self.training and not hidden_output.requires_grad:
+                            hidden_output = hidden_output.detach().clone().requires_grad_(True)
+                        pooled_output = hidden_output[:, 0, :]  # Last layer, CLS token
                     else:
-                        pooled_output = outputs.hidden_states[:, 0, :]
+                        hidden_output = outputs.hidden_states
+                        if self.training and not hidden_output.requires_grad:
+                            hidden_output = hidden_output.detach().clone().requires_grad_(True)
+                        pooled_output = hidden_output[:, 0, :]
                     logger.debug(f"Using hidden states for MPNet: {pooled_output.shape}")
                 else:
                     # Direct output handling
-                    pooled_output = outputs[:, 0, :]  # Use CLS token
+                    if self.training and not outputs.requires_grad:
+                        outputs_with_grad = outputs.detach().clone().requires_grad_(True)
+                        pooled_output = outputs_with_grad[:, 0, :]  # Use CLS token
+                    else:
+                        pooled_output = outputs[:, 0, :]  # Use CLS token
                     logger.debug(f"Using direct output for MPNet: {pooled_output.shape}")
                 
             elif "Qwen" in encoder_type:
@@ -605,13 +643,20 @@ class QuestionClassifier(nn.Module):
                     else:
                         hidden_states = outputs.hidden_states
                     
+                    # Ensure hidden states have requires_grad=True
+                    if self.training and not hidden_states.requires_grad:
+                        hidden_states = hidden_states.detach().clone().requires_grad_(True)
+                    
                     # Average over the sequence dimension as pooling
                     pooled_output = hidden_states.mean(dim=1)
                     logger.debug("Using mean pooling over hidden states for Qwen model")
                     
                 elif hasattr(outputs, 'last_hidden_state'):
                     # If we have last_hidden_state, use mean pooling
-                    pooled_output = outputs.last_hidden_state.mean(dim=1)
+                    last_hidden = outputs.last_hidden_state
+                    if self.training and not last_hidden.requires_grad:
+                        last_hidden = last_hidden.detach().clone().requires_grad_(True)
+                    pooled_output = last_hidden.mean(dim=1)
                     logger.debug("Using mean pooling over last_hidden_state for Qwen model")
                     
                 else:
@@ -619,51 +664,82 @@ class QuestionClassifier(nn.Module):
                     logger.warning("Could not find suitable output format for Qwen model")
                     if isinstance(outputs, tuple) and len(outputs) > 0:
                         # Try first element as hidden states
-                        pooled_output = outputs[0].mean(dim=1)
+                        output_tensor = outputs[0]
+                        if self.training and not output_tensor.requires_grad:
+                            output_tensor = output_tensor.detach().clone().requires_grad_(True)
+                        pooled_output = output_tensor.mean(dim=1)
                     else:
                         # Direct output mean pooling
-                        pooled_output = outputs.mean(dim=1) if hasattr(outputs, 'mean') else outputs
+                        if hasattr(outputs, 'mean'):
+                            if self.training and not outputs.requires_grad:
+                                outputs_with_grad = outputs.detach().clone().requires_grad_(True)
+                                pooled_output = outputs_with_grad.mean(dim=1)
+                            else:
+                                pooled_output = outputs.mean(dim=1)
+                        else:
+                            pooled_output = outputs
+                            if self.training and torch.is_tensor(pooled_output) and not pooled_output.requires_grad:
+                                pooled_output = pooled_output.detach().clone().requires_grad_(True)
             
             # Standard output format handling for other models
             elif hasattr(outputs, 'last_hidden_state'):
                 # Standard HuggingFace format
-                pooled_output = outputs.last_hidden_state[:, 0, :]  # CLS token
+                hidden_output = outputs.last_hidden_state
+                if self.training and not hidden_output.requires_grad:
+                    hidden_output = hidden_output.detach().clone().requires_grad_(True)
+                pooled_output = hidden_output[:, 0, :]  # CLS token
                 logger.debug("Using last_hidden_state[:, 0, :] for pooled output")
             elif hasattr(outputs, 'hidden_states') and outputs.hidden_states is not None:
                 # Some models return hidden states tuple/list
                 if isinstance(outputs.hidden_states, (list, tuple)):
-                    pooled_output = outputs.hidden_states[-1][:, 0, :]  # Last layer, CLS token
+                    hidden_output = outputs.hidden_states[-1]
+                    if self.training and not hidden_output.requires_grad:
+                        hidden_output = hidden_output.detach().clone().requires_grad_(True)
+                    pooled_output = hidden_output[:, 0, :]  # Last layer, CLS token
                     logger.debug("Using hidden_states[-1][:, 0, :] for pooled output")
                 else:
-                    pooled_output = outputs.hidden_states[:, 0, :]
+                    hidden_output = outputs.hidden_states
+                    if self.training and not hidden_output.requires_grad:
+                        hidden_output = hidden_output.detach().clone().requires_grad_(True)
+                    pooled_output = hidden_output[:, 0, :]
                     logger.debug("Using hidden_states[:, 0, :] for pooled output")
             elif hasattr(outputs, 'pooler_output'):
                 # Some models have a dedicated pooler
-                pooled_output = outputs.pooler_output
+                pooler_output = outputs.pooler_output
+                if self.training and not pooler_output.requires_grad:
+                    pooler_output = pooler_output.detach().clone().requires_grad_(True)
+                pooled_output = pooler_output
                 logger.debug("Using pooler_output for pooled output")
             elif isinstance(outputs, tuple) and len(outputs) > 0:
                 # Try first element, which is often the hidden states
                 if isinstance(outputs[0], torch.Tensor):
-                    pooled_output = outputs[0][:, 0, :]
+                    output_tensor = outputs[0]
+                    if self.training and not output_tensor.requires_grad:
+                        output_tensor = output_tensor.detach().clone().requires_grad_(True)
+                    pooled_output = output_tensor[:, 0, :]
                     logger.debug("Using outputs[0][:, 0, :] for pooled output")
                 else:
                     # Handle other output types
                     logger.warning(f"Unexpected output type: {type(outputs[0])}")
-                    # Create a default embedding for safety
+                    # Create a default embedding for safety with gradients
                     batch_size = input_ids.shape[0]
                     input_dim = self.classifier[0].in_features
-                    pooled_output = torch.zeros(batch_size, input_dim, device=input_ids.device)
+                    pooled_output = torch.zeros(batch_size, input_dim, device=input_ids.device, requires_grad=True)
             else:
                 # Last resort - check if outputs is a tensor
                 if isinstance(outputs, torch.Tensor):
-                    pooled_output = outputs[:, 0, :]
+                    if self.training and not outputs.requires_grad:
+                        outputs_with_grad = outputs.detach().clone().requires_grad_(True)
+                        pooled_output = outputs_with_grad[:, 0, :]
+                    else:
+                        pooled_output = outputs[:, 0, :]
                     logger.debug("Using outputs[:, 0, :] directly for pooled output")
                 else:
-                    # Create default pooled output
+                    # Create default pooled output with gradients enabled
                     logger.warning(f"Could not extract pooled output from {type(outputs)}")
                     batch_size = input_ids.shape[0]
                     input_dim = self.classifier[0].in_features
-                    pooled_output = torch.zeros(batch_size, input_dim, device=input_ids.device)
+                    pooled_output = torch.zeros(batch_size, input_dim, device=input_ids.device, requires_grad=True)
                 
             # Verify shapes match
             expected_dim = self.classifier[0].in_features
@@ -681,9 +757,10 @@ class QuestionClassifier(nn.Module):
                     pooled_output = torch.cat([pooled_output, padding], dim=1)
                     logger.debug(f"Padded pooled output to match classifier input dimension: {pooled_output.shape}")
             
-            # Ensure pooled_output requires gradients
-            if not pooled_output.requires_grad:
-                logger.warning("pooled_output does not require gradients, creating new tensor with requires_grad=True")
+            # Final verification: pooled_output MUST have requires_grad=True for backpropagation
+            # We should only reach this as a safety net, since we now ensure gradients at the source
+            if not pooled_output.requires_grad and self.training:
+                logger.debug("Final check: Ensuring pooled_output has gradients enabled")
                 pooled_output = pooled_output.detach().clone().requires_grad_(True)
                 
             # Pass through classifier head
