@@ -606,30 +606,165 @@ class QuestionClassifier(nn.Module):
                 if hasattr(outputs, 'last_hidden_state'):
                     # Standard handling for last_hidden_state
                     hidden_output = outputs.last_hidden_state
+                    
+                    # Safety check for dimensions
+                    try:
+                        if len(hidden_output.shape) < 3:
+                            logger.warning(f"MPNet last_hidden_state has unexpected shape: {hidden_output.shape}. Reshaping safely.")
+                            # Create a correctly shaped tensor
+                            batch_size = input_ids.shape[0]
+                            if hasattr(self.encoder, 'config') and hasattr(self.encoder.config, 'hidden_size'):
+                                hidden_size = self.encoder.config.hidden_size
+                            else:
+                                hidden_size = 768  # Default
+                            
+                            # Create a safe tensor
+                            safe_hidden = torch.zeros((batch_size, 1, hidden_size), device=hidden_output.device, dtype=hidden_output.dtype)
+                            
+                            # Copy data if possible
+                            if len(hidden_output.shape) == 2 and hidden_output.shape[0] == batch_size:
+                                safe_hidden[:, 0, :hidden_output.shape[1]] = hidden_output
+                            
+                            # Use the safe tensor
+                            hidden_output = safe_hidden
+                    except Exception as e:
+                        logger.warning(f"Error handling hidden_output dimension: {e}. Creating safe tensor.")
+                        # Create a safe tensor
+                        batch_size = input_ids.shape[0]
+                        if hasattr(self.encoder, 'config') and hasattr(self.encoder.config, 'hidden_size'):
+                            hidden_size = self.encoder.config.hidden_size
+                        else:
+                            hidden_size = 768
+                        hidden_output = torch.zeros((batch_size, 1, hidden_size), device=input_ids.device, dtype=torch.float32)
+                    
+                    # Handle gradients
                     if self.training and not hidden_output.requires_grad:
                         hidden_output = hidden_output.detach().clone().requires_grad_(True)
-                    pooled_output = hidden_output[:, 0, :]  # Use CLS token
+                    
+                    # Safely extract the pooled output with dimension checks
+                    try:
+                        pooled_output = hidden_output[:, 0, :]  # Use CLS token
+                    except IndexError:
+                        logger.warning("Index error when extracting CLS token. Using mean pooling instead.")
+                        # Fallback to mean pooling
+                        pooled_output = hidden_output.mean(dim=1)
+                        
                     logger.debug(f"Using CLS token from last_hidden_state for MPNet: {pooled_output.shape}")
                 elif hasattr(outputs, 'hidden_states') and outputs.hidden_states is not None:
-                    # Handle hidden_states
-                    if isinstance(outputs.hidden_states, (list, tuple)):
-                        hidden_output = outputs.hidden_states[-1]
+                    # Handle hidden_states with dimension safety
+                    try:
+                        if isinstance(outputs.hidden_states, (list, tuple)):
+                            # Check if the list/tuple is empty
+                            if len(outputs.hidden_states) == 0:
+                                raise IndexError("Hidden states list is empty")
+                                
+                            try:
+                                # Try to get the last element (could raise IndexError)
+                                hidden_output = outputs.hidden_states[-1]
+                            except IndexError:
+                                logger.warning("Index error when accessing hidden_states[-1]. Using zeros.")
+                                # Create fallback tensor
+                                batch_size = input_ids.shape[0]
+                                if hasattr(self.encoder, 'config') and hasattr(self.encoder.config, 'hidden_size'):
+                                    hidden_size = self.encoder.config.hidden_size
+                                else:
+                                    hidden_size = 768  # Default
+                                hidden_output = torch.zeros((batch_size, 1, hidden_size), device=input_ids.device, dtype=torch.float32)
+                        else:
+                            # Not a list/tuple, use directly
+                            hidden_output = outputs.hidden_states
+                            
+                        # Safety check for dimensions
+                        if not isinstance(hidden_output, torch.Tensor):
+                            logger.warning(f"Hidden output is not a tensor: {type(hidden_output)}. Creating safe tensor.")
+                            batch_size = input_ids.shape[0]
+                            hidden_size = 768  # Default
+                            hidden_output = torch.zeros((batch_size, 1, hidden_size), device=input_ids.device, dtype=torch.float32)
+                        elif len(hidden_output.shape) < 3:
+                            logger.warning(f"Hidden output has unexpected shape: {hidden_output.shape}. Reshaping safely.")
+                            # Create correct shape
+                            batch_size = input_ids.shape[0]
+                            if hidden_output.shape[0] == batch_size and len(hidden_output.shape) == 2:
+                                # It's [batch_size, hidden_size] - need to add sequence dimension
+                                hidden_dim = hidden_output.shape[1]
+                                reshaped = torch.zeros((batch_size, 1, hidden_dim), device=hidden_output.device)
+                                reshaped[:, 0, :] = hidden_output
+                                hidden_output = reshaped
+                            else:
+                                # Create from scratch
+                                if hasattr(self.encoder, 'config') and hasattr(self.encoder.config, 'hidden_size'):
+                                    hidden_size = self.encoder.config.hidden_size
+                                else:
+                                    hidden_size = 768  # Default
+                                hidden_output = torch.zeros((batch_size, 1, hidden_size), device=input_ids.device, dtype=torch.float32)
+                                
+                        # Handle gradients
                         if self.training and not hidden_output.requires_grad:
                             hidden_output = hidden_output.detach().clone().requires_grad_(True)
-                        pooled_output = hidden_output[:, 0, :]  # Last layer, CLS token
-                    else:
-                        hidden_output = outputs.hidden_states
-                        if self.training and not hidden_output.requires_grad:
-                            hidden_output = hidden_output.detach().clone().requires_grad_(True)
-                        pooled_output = hidden_output[:, 0, :]
+                            
+                        # Safely extract CLS token
+                        try:
+                            pooled_output = hidden_output[:, 0, :]  # Last layer, CLS token
+                        except IndexError:
+                            logger.warning("Index error when extracting CLS token. Using mean pooling instead.")
+                            # Fallback to mean pooling
+                            pooled_output = hidden_output.mean(dim=1) if hidden_output.dim() > 1 else hidden_output
+                            
+                    except Exception as e:
+                        logger.warning(f"Error processing hidden states: {e}. Creating fallback tensor.")
+                        # Create emergency fallback
+                        batch_size = input_ids.shape[0]
+                        if hasattr(self.encoder, 'config') and hasattr(self.encoder.config, 'hidden_size'):
+                            hidden_size = self.encoder.config.hidden_size
+                        else:
+                            hidden_size = 768  # Default
+                        pooled_output = torch.zeros(batch_size, hidden_size, device=input_ids.device, requires_grad=True)
+                        
                     logger.debug(f"Using hidden states for MPNet: {pooled_output.shape}")
                 else:
-                    # Direct output handling
-                    if self.training and not outputs.requires_grad:
-                        outputs_with_grad = outputs.detach().clone().requires_grad_(True)
-                        pooled_output = outputs_with_grad[:, 0, :]  # Use CLS token
-                    else:
-                        pooled_output = outputs[:, 0, :]  # Use CLS token
+                    # Direct output handling - with explicit safety checks
+                    try:
+                        # First check if tensor has the right dimensions
+                        if len(outputs.shape) < 3:
+                            logger.warning(f"MPNet output tensor has unexpected shape: {outputs.shape}. Reshaping safely.")
+                            # Handle unexpected shape by creating a safe tensor with the right dimensions
+                            batch_size = input_ids.shape[0]
+                            if hasattr(self.encoder, 'config') and hasattr(self.encoder.config, 'hidden_size'):
+                                hidden_size = self.encoder.config.hidden_size
+                            else:
+                                hidden_size = 768  # Default hidden size for MPNet
+                                
+                            # Create a safe tensor with correct dimensions
+                            safe_outputs = torch.zeros((batch_size, 1, hidden_size), device=outputs.device, dtype=outputs.dtype)
+                            
+                            # Copy data if possible, handling dimension mismatch
+                            if len(outputs.shape) == 2 and outputs.shape[0] == batch_size:
+                                # If we have [batch_size, hidden_dim], reshape to [batch_size, 1, hidden_dim]
+                                safe_outputs[:, 0, :outputs.shape[1]] = outputs
+                            else:
+                                # Just use zeros as a fallback
+                                logger.warning("Using zeros for pooled output due to tensor shape mismatch")
+                                
+                            # Use the safe tensor
+                            outputs = safe_outputs
+                            
+                        # Now handle gradients
+                        if self.training and not outputs.requires_grad:
+                            outputs_with_grad = outputs.detach().clone().requires_grad_(True)
+                            pooled_output = outputs_with_grad[:, 0, :]  # Use CLS token
+                        else:
+                            pooled_output = outputs[:, 0, :]  # Use CLS token
+                    except Exception as e:
+                        # Create an emergency fallback tensor on error
+                        logger.warning(f"Error extracting MPNet tensor with correct dimensions: {e}")
+                        batch_size = input_ids.shape[0]
+                        if hasattr(self.encoder, 'config') and hasattr(self.encoder.config, 'hidden_size'):
+                            hidden_size = self.encoder.config.hidden_size
+                        else:
+                            hidden_size = 768  # Default hidden size for MPNet
+                        
+                        # Create a zero tensor with the right dimensions and gradient support
+                        pooled_output = torch.zeros(batch_size, hidden_size, device=input_ids.device, requires_grad=True)
                     logger.debug(f"Using direct output for MPNet: {pooled_output.shape}")
                 
             elif "Qwen" in encoder_type:
@@ -768,7 +903,16 @@ class QuestionClassifier(nn.Module):
             return logits
             
         except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
             logger.error(f"Error in forward pass: {e}")
+            logger.error(f"Detailed traceback:\n{error_trace}")
+            
+            # Log tensor dimensions for debugging
+            logger.error(f"Input IDs shape: {input_ids.shape}")
+            if attention_mask is not None:
+                logger.error(f"Attention mask shape: {attention_mask.shape}")
+            
             # Create emergency fallback - zero output to prevent crashes
             batch_size = input_ids.shape[0]
             num_classes = self.classifier[-1].out_features
