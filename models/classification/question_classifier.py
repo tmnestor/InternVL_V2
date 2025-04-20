@@ -362,12 +362,14 @@ class QuestionClassifier(nn.Module):
                 else:
                     vocab_size = 30000  # Safe default
                 
-                # Make a safety check for token IDs
+                # Make a safety check for token IDs - without excessive logging
                 if torch.max(input_ids) >= vocab_size:
-                    logger.warning(f"Found out-of-range token IDs. Max ID: {torch.max(input_ids).item()}, Vocab size: {vocab_size}")
-                    # Clip token IDs to vocab size to prevent index errors
+                    # Only log once
+                    if not hasattr(self, '_token_clip_logged_internvl'):
+                        logger.warning(f"Fixing token ID range issues to prevent embedding errors")
+                        self._token_clip_logged_internvl = True
+                    # Silently clip token IDs
                     input_ids = torch.clamp(input_ids, max=vocab_size-1)
-                    logger.info(f"Clipped token IDs to prevent embedding index errors")
                 
                 params = {
                     'input_ids': input_ids,
@@ -405,12 +407,14 @@ class QuestionClassifier(nn.Module):
                     else:
                         vocab_size = 30000  # Safe default for MPNet
                     
-                    # Check if any token IDs are out of range
+                    # Check if any token IDs are out of range - do the clipping but don't log excessively
                     if torch.max(input_ids) >= vocab_size:
-                        logger.warning(f"Found out-of-range token IDs. Max ID: {torch.max(input_ids).item()}, Vocab size: {vocab_size}")
-                        # Clip token IDs to vocab size to prevent index errors
+                        # Only log this on the first batch
+                        if not hasattr(self, '_token_clip_logged'):
+                            logger.warning(f"Found and automatically fixing out-of-range token IDs (Max: {torch.max(input_ids).item()}, Vocab: {vocab_size})")
+                            self._token_clip_logged = True
+                        # Silently clip token IDs to vocab size to prevent index errors
                         input_ids = torch.clamp(input_ids, max=vocab_size-1)
-                        logger.info(f"Clipped token IDs to valid range: 0-{vocab_size-1}")
                 
                 # Add standard parameters
                 if 'input_ids' in valid_params:
