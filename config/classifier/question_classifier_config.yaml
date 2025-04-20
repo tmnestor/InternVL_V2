@@ -7,7 +7,7 @@ model:
   # Point to the model path
   custom_path: "/Users/tod/PretrainedLLM/all-mpnet-base-v2"
   use_custom_path: true  # ALWAYS TRUE - we only load from local paths
-  use_internvl_language_model: false  # Do NOT use InternVL's language model for classification
+  use_internvl_language_model: false  # CRITICAL: Do NOT use InternVL's language model - it causes index errors
   
   # Model architecture parameters
   hidden_size: 768

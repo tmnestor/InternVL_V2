@@ -599,52 +599,36 @@ class InternVL2MultimodalModel(nn.Module):
                     self.logger.error(error_msg)
                     raise FileNotFoundError(error_msg)
                 
-                # Get use_internvl_language_model flag
+                # Get use_internvl_language_model flag but ignore it - this MUST be false
                 use_internvl_lm = model_config.get("use_internvl_language_model", False)
-                self.logger.info(f"Using InternVL language model for question classifier: {use_internvl_lm}")
+                if use_internvl_lm:
+                    self.logger.warning("Found use_internvl_language_model=true but this MUST be false to avoid index errors")
+                else:
+                    self.logger.info("Verified use_internvl_language_model=false (correct configuration)")
                 
                 from models.classification.question_classifier import QuestionClassifier
                 
-                # Only use InternVL's language model and tokenizer if specifically configured to do so
-                if use_internvl_lm:
-                    self.logger.info("Creating question classifier using InternVL2's language model and tokenizer")
-                else:
-                    self.logger.info("Creating question classifier using separate MPNet model")
+                # MPNet is the only viable option for question classification
+                self.logger.info("Creating question classifier using separate MPNet model (all-mpnet-base-v2)")
+                self.logger.info("This is the only approach that works reliably without index errors")
                 
-                # Initialize classifier differently based on use_internvl_lm flag
+                # We will ALWAYS use the dedicated text model (all-mpnet-base-v2) for question classification
+                # Using InternVL's language model causes index errors due to model mismatch
+                
+                # Use the separate MPNet model as specified in the config
+                self.logger.info(f"Using dedicated text model (all-mpnet-base-v2) for question classification - this is the only stable approach")
                 if use_internvl_lm:
-                    # Get the actual hidden size from the language model
-                    if hasattr(self.language_model, "config") and hasattr(self.language_model.config, "hidden_size"):
-                        language_model_hidden_size = self.language_model.config.hidden_size
-                        self.logger.info(f"Detected language model hidden size: {language_model_hidden_size}")
-                    else:
-                        # Default to the hidden size parameter from config
-                        language_model_hidden_size = hidden_size
-                        self.logger.warning(f"Could not detect language model hidden size, using default: {language_model_hidden_size}")
-                    
-                    # Instantiate with InternVL2's tokenizer and language model
-                    self.question_classifier = QuestionClassifier(
-                        model_name="internvl2-internal",  # This is just a name, not actually used for loading
-                        # Use the detected hidden size from the language model
-                        hidden_size=language_model_hidden_size,
-                        num_classes=num_classes,
-                        # Pass the actual tokenizer and language model objects
-                        encoder=self.language_model,  # Use the same language model
-                        tokenizer=self.tokenizer,     # Use the same tokenizer
-                        # Since we're providing models directly, these flags are ignored
-                        use_custom_path=False,
-                        use_existing_models=True      # Flag to indicate we're providing models directly
-                    )
-                else:
-                    # Use the separate MPNet model as specified in the config
-                    self.question_classifier = QuestionClassifier(
-                        model_name=model_name,  # This is the path to all-mpnet-base-v2
-                        hidden_size=hidden_size,
-                        num_classes=num_classes,
-                        # Let the classifier load its own model and tokenizer
-                        use_custom_path=use_custom_path,
-                        use_existing_models=False  # Don't use InternVL models
-                    )
+                    self.logger.warning("Ignoring use_internvl_language_model=true setting - this causes index errors")
+                    self.logger.warning("Forcing use of dedicated text model instead of InternVL language model")
+                
+                self.question_classifier = QuestionClassifier(
+                    model_name=model_name,  # This is the path to all-mpnet-base-v2
+                    hidden_size=hidden_size,
+                    num_classes=num_classes,
+                    # Let the classifier load its own model and tokenizer
+                    use_custom_path=use_custom_path,
+                    use_existing_models=False  # Don't use InternVL models
+                )
                 
                 # Ensure all parameters are set to require gradients 
                 for param in self.question_classifier.parameters():
