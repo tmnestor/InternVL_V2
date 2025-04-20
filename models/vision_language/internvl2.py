@@ -603,36 +603,48 @@ class InternVL2MultimodalModel(nn.Module):
                 use_internvl_lm = model_config.get("use_internvl_language_model", False)
                 self.logger.info(f"Using InternVL language model for question classifier: {use_internvl_lm}")
                 
-                # Directly construct a question classifier that uses the InternVL2 language model and tokenizer
-                # Instead of loading a separate model, we'll use components we already have in memory
-                
                 from models.classification.question_classifier import QuestionClassifier
                 
-                # Create a classifier using InternVL2's language model and tokenizer
-                self.logger.info("Creating question classifier using InternVL2's language model and tokenizer")
-                
-                # Get the actual hidden size from the language model
-                if hasattr(self.language_model, "config") and hasattr(self.language_model.config, "hidden_size"):
-                    language_model_hidden_size = self.language_model.config.hidden_size
-                    self.logger.info(f"Detected language model hidden size: {language_model_hidden_size}")
+                # Only use InternVL's language model and tokenizer if specifically configured to do so
+                if use_internvl_lm:
+                    self.logger.info("Creating question classifier using InternVL2's language model and tokenizer")
                 else:
-                    # Default to the hidden size parameter from config
-                    language_model_hidden_size = hidden_size
-                    self.logger.warning(f"Could not detect language model hidden size, using default: {language_model_hidden_size}")
+                    self.logger.info("Creating question classifier using separate MPNet model")
                 
-                # Instantiate with InternVL2's tokenizer and language model
-                self.question_classifier = QuestionClassifier(
-                    model_name="internvl2-internal",  # This is just a name, not actually used for loading
-                    # Use the detected hidden size from the language model
-                    hidden_size=language_model_hidden_size,
-                    num_classes=num_classes,
-                    # Pass the actual tokenizer and language model objects
-                    encoder=self.language_model,  # Use the same language model
-                    tokenizer=self.tokenizer,     # Use the same tokenizer
-                    # Since we're providing models directly, these flags are ignored
-                    use_custom_path=False,
-                    use_existing_models=True      # Flag to indicate we're providing models directly
-                )
+                # Initialize classifier differently based on use_internvl_lm flag
+                if use_internvl_lm:
+                    # Get the actual hidden size from the language model
+                    if hasattr(self.language_model, "config") and hasattr(self.language_model.config, "hidden_size"):
+                        language_model_hidden_size = self.language_model.config.hidden_size
+                        self.logger.info(f"Detected language model hidden size: {language_model_hidden_size}")
+                    else:
+                        # Default to the hidden size parameter from config
+                        language_model_hidden_size = hidden_size
+                        self.logger.warning(f"Could not detect language model hidden size, using default: {language_model_hidden_size}")
+                    
+                    # Instantiate with InternVL2's tokenizer and language model
+                    self.question_classifier = QuestionClassifier(
+                        model_name="internvl2-internal",  # This is just a name, not actually used for loading
+                        # Use the detected hidden size from the language model
+                        hidden_size=language_model_hidden_size,
+                        num_classes=num_classes,
+                        # Pass the actual tokenizer and language model objects
+                        encoder=self.language_model,  # Use the same language model
+                        tokenizer=self.tokenizer,     # Use the same tokenizer
+                        # Since we're providing models directly, these flags are ignored
+                        use_custom_path=False,
+                        use_existing_models=True      # Flag to indicate we're providing models directly
+                    )
+                else:
+                    # Use the separate MPNet model as specified in the config
+                    self.question_classifier = QuestionClassifier(
+                        model_name=model_name,  # This is the path to all-mpnet-base-v2
+                        hidden_size=hidden_size,
+                        num_classes=num_classes,
+                        # Let the classifier load its own model and tokenizer
+                        use_custom_path=use_custom_path,
+                        use_existing_models=False  # Don't use InternVL models
+                    )
                 
                 # Ensure all parameters are set to require gradients 
                 for param in self.question_classifier.parameters():
