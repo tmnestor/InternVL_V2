@@ -356,6 +356,19 @@ class QuestionClassifier(nn.Module):
                 batch_size = input_ids.shape[0]
                 
                 # Create a complete parameter set with both text and image inputs
+                # First check token IDs are in valid range
+                if hasattr(self.encoder, 'config') and hasattr(self.encoder.config, 'vocab_size'):
+                    vocab_size = self.encoder.config.vocab_size
+                else:
+                    vocab_size = 30000  # Safe default
+                
+                # Make a safety check for token IDs
+                if torch.max(input_ids) >= vocab_size:
+                    logger.warning(f"Found out-of-range token IDs. Max ID: {torch.max(input_ids).item()}, Vocab size: {vocab_size}")
+                    # Clip token IDs to vocab size to prevent index errors
+                    input_ids = torch.clamp(input_ids, max=vocab_size-1)
+                    logger.info(f"Clipped token IDs to prevent embedding index errors")
+                
                 params = {
                     'input_ids': input_ids,
                     'return_dict': True,
@@ -383,6 +396,23 @@ class QuestionClassifier(nn.Module):
             else:
                 # Standard parameter handling for non-InternVL models
                 params = {}
+                
+                # Check for token ID range issues that could cause index errors
+                if 'MPNet' in encoder_type or 'mpnet' in encoder_type:
+                    # Get vocabulary size from encoder config or default to safe value
+                    if hasattr(self.encoder, 'config') and hasattr(self.encoder.config, 'vocab_size'):
+                        vocab_size = self.encoder.config.vocab_size
+                    else:
+                        vocab_size = 30000  # Safe default for MPNet
+                    
+                    # Check if any token IDs are out of range
+                    if torch.max(input_ids) >= vocab_size:
+                        logger.warning(f"Found out-of-range token IDs. Max ID: {torch.max(input_ids).item()}, Vocab size: {vocab_size}")
+                        # Clip token IDs to vocab size to prevent index errors
+                        input_ids = torch.clamp(input_ids, max=vocab_size-1)
+                        logger.info(f"Clipped token IDs to valid range: 0-{vocab_size-1}")
+                
+                # Add standard parameters
                 if 'input_ids' in valid_params:
                     params['input_ids'] = input_ids
                 if 'attention_mask' in valid_params and attention_mask is not None:

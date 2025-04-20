@@ -625,16 +625,32 @@ def main():
     hidden_size = getattr(encoder.config, "hidden_size", model_config.get("hidden_size", 768))
     use_internvl_language_model = model_config.get("use_internvl_language_model", False)
     
-    # Create question classifier
+    # Ensure we have the correct tokenizer for this model
+    logger.info(f"Checking tokenizer compatibility with model")
+    # Get vocabulary size from the encoder config
+    if hasattr(encoder.config, 'vocab_size'):
+        vocab_size = encoder.config.vocab_size
+        logger.info(f"Model vocabulary size: {vocab_size}")
+        # Check if tokenizer vocabulary matches
+        if hasattr(tokenizer, 'vocab_size'):
+            tokenizer_vocab_size = tokenizer.vocab_size
+            logger.info(f"Tokenizer vocabulary size: {tokenizer_vocab_size}")
+            if tokenizer_vocab_size != vocab_size:
+                logger.warning(f"Tokenizer vocabulary size ({tokenizer_vocab_size}) doesn't match model ({vocab_size})")
+                # This mismatch could cause index errors - recreate tokenizer from model path
+                logger.info(f"Recreating tokenizer from model path to ensure compatibility")
+                tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=use_custom_path)
+    
+    # Create question classifier with the correct and compatible tokenizer
     model = QuestionClassifier(
         model_name=model_path,
         hidden_size=hidden_size,
         num_classes=len(train_dataset.question_types),
         device=device,
         use_custom_path=use_custom_path,
-        use_internvl_language_model=use_internvl_language_model,
+        use_internvl_language_model=False,  # Force to false as InternVL causes index errors
         encoder=encoder,
-        tokenizer=tokenizer,
+        tokenizer=tokenizer, 
         use_existing_models=True
     )
     
