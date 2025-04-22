@@ -6,6 +6,7 @@ model:
   name: "all-mpnet-base-v2"
   # Point to the model path
   custom_path: "/Users/tod/PretrainedLLM/all-mpnet-base-v2"
+  # custom_path: "/home/jovyan/nfs_share/models/huggingface/hub/all-mpnet-base-v2"
   use_custom_path: true  # ALWAYS TRUE - we only load from local paths
   use_internvl_language_model: false  # CRITICAL: Do NOT use InternVL's language model - it causes index errors
   

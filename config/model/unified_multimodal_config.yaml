@@ -9,6 +9,7 @@ log_level: INFO
 model:
   # For InternVL2 model
   pretrained_path: "/Users/tod/PretrainedLLM/InternVL2_5-1B"
+  # pretrained_path: "$HOME/nfs_share/models/huggingface/hub/InternVL2_5-1B"
   multimodal: true  # Enable multimodal mode
   num_classes: 3  # 0, 1, 2+ receipts for classification task
   use_8bit: false  # Disable 8-bit quantization for better accuracy
@@ -32,8 +33,8 @@ data:
 
 # Training configuration
 training:
-  epochs: 20
-  learning_rate: 1.0e-7  # Reduced due to persistent high losses
+  epochs: 15
+  learning_rate: 1.0e-4
   weight_decay: 1.0e-4
   warmup_steps: 1000  # Increased warmup to improve initial stability
   gradient_accumulation_steps: 4  # Increased to maintain effective batch size
@@ -79,7 +80,7 @@ training:
   
   # Early stopping
   early_stopping:
-    patience: 5
+    patience: 3
     min_delta: 0.01
 
 # Output configuration
