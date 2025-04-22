@@ -34,10 +34,10 @@ data:
 # Training configuration
 training:
   epochs: 15
-  learning_rate: 1.0e-4
+  learning_rate: 5.0e-5  # Increased for faster progress
   weight_decay: 1.0e-4
-  warmup_steps: 1000  # Increased warmup to improve initial stability
-  gradient_accumulation_steps: 4  # Increased to maintain effective batch size
+  warmup_steps: 200  # Reduced for faster warmup
+  gradient_accumulation_steps: 4  # Maintained to balance memory and updates
   flash_attention: false  # Disable Flash Attention since it's not available
   fp16: false  # Disable mixed precision training for better stability
   gradient_clip: 1.0  # Gradient clipping value
@@ -51,13 +51,13 @@ training:
     
     # Stage 2: Unfreeze vision encoder, train with small LR
     stage2:
-      start_epoch: 6
-      lr_multiplier: 0.01
+      start_epoch: 4  # Earlier transition for faster adaptation
+      lr_multiplier: 0.05  # Increased from 0.01 for better learning
     
     # Stage 3: Full fine-tuning with balanced LRs
     stage3:
-      start_epoch: 11
-      lr_multiplier: 0.01
+      start_epoch: 8  # Earlier transition from 11
+      lr_multiplier: 0.05  # Increased from 0.01 for better learning
   
   # Task weighting
   loss_weights:
@@ -67,16 +67,16 @@ training:
   # Optimizer settings
   optimizer:
     name: "adamw"
-    learning_rate: 2.0e-5
+    learning_rate: 5.0e-5  # Increased and matched with main learning_rate
     weight_decay: 0.01
-    language_lr_multiplier: 0.1
-    backbone_lr_multiplier: 0.01
+    language_lr_multiplier: 0.2  # Increased from 0.1 for faster language model training
+    backbone_lr_multiplier: 0.05  # Increased from 0.01 for faster backbone training
   
   # Learning rate scheduler
   scheduler:
     name: "cosine"
-    min_lr_factor: 0.1
-    warmup_steps: 500
+    min_lr_factor: 0.01  # Reduced for more aggressive decay schedule
+    warmup_steps: 200  # Matched with main warmup_steps
   
   # Early stopping
   early_stopping:
