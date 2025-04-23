@@ -456,11 +456,25 @@ class MultimodalTrainer:
                     if self.clip_grad_norm > 0:
                         torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.clip_grad_norm)
                     
-                    # Update weights
-                    self.optimizer.step()
+                    try:
+                        # Update weights
+                        self.optimizer.step()
+                    except RuntimeError as e:
+                        if "CUDA out of memory" in str(e):
+                            self.logger.error(f"CUDA OOM during optimizer step. Error: {e}")
+                            self.logger.info("Trying to recover by clearing cache and reducing batch size...")
+                            torch.cuda.empty_cache()
+                            # Let it crash to prevent further issues
+                            raise
+                        else:
+                            raise
                     
                     # Zero gradients after update
                     self.optimizer.zero_grad()
+                    
+                    # Periodically clear CUDA cache to prevent fragmentation (every 20 updates)
+                    if (batch_idx + 1) % 20 == 0:
+                        torch.cuda.empty_cache()
             
             # Update running losses
             running_loss += loss_dict["total_loss"].item()

@@ -25,7 +25,7 @@ model:
 data:
   # Using a unified dataset structure
   root_dir: "data/multimodal"  # Directory containing train/val/test splits
-  batch_size: 4  # Reduced batch size to address OOM errors
+  batch_size: 2  # Further reduced batch size to address OOM errors
   num_workers: 1
   image_size: 448  # InternVL2 default size
   augmentation: true
@@ -37,7 +37,7 @@ training:
   learning_rate: 5.0e-5  # Increased for faster progress
   weight_decay: 1.0e-4
   warmup_steps: 200  # Reduced for faster warmup
-  gradient_accumulation_steps: 4  # Maintained to balance memory and updates
+  gradient_accumulation_steps: 8  # Increased to maintain effective batch size while reducing memory usage
   flash_attention: false  # Disable Flash Attention since it's not available
   fp16: false  # Disable mixed precision training for better stability
   gradient_clip: 1.0  # Gradient clipping value

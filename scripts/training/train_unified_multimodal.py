@@ -15,6 +15,9 @@ from pathlib import Path
 # Set tokenizers parallelism to False to avoid warning
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+# Set CUDA memory allocation configuration to avoid fragmentation
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:128"
+
 import torch
 import yaml
 
@@ -105,14 +108,27 @@ def main():
     except Exception as e:
         logger.warning(f"Test dataloader could not be created: {e}")
     
-    # Initialize model
-    logger.info("Initializing multimodal model")
+    # Initialize model with memory optimization
+    logger.info("Initializing multimodal model with memory optimizations")
+    
+    # Clean up GPU memory before model initialization
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        initial_mem = torch.cuda.memory_allocated() / 1024**3
+        logger.info(f"Initial GPU memory: {initial_mem:.2f} GB")
+    
     model = InternVL2MultimodalModel(
         config=config,
         pretrained=True,
         freeze_vision_encoder=True,  # Will be unfrozen during stage 2
-        freeze_language_model=False  # Train language model from the start
+        freeze_language_model=False,  # Train language model from the start
+        low_cpu_mem_usage=True,      # Use memory-efficient loading
     )
+    
+    # Log memory usage after model initialization
+    if torch.cuda.is_available():
+        after_init_mem = torch.cuda.memory_allocated() / 1024**3
+        logger.info(f"GPU memory after model init: {after_init_mem:.2f} GB (Increase: {after_init_mem - initial_mem:.2f} GB)")
     
     # Debug: Print model structure to help diagnose language model integration
     logger.info("Model initialized. Checking structure...")
