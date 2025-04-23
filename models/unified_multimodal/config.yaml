@@ -1,6 +1,6 @@
 data:
   augmentation: true
-  batch_size: 4
+  batch_size: 2
   image_size: 448
   max_text_length: 128
   num_workers: 1
@@ -33,47 +33,47 @@ model:
   pretrained_path: /Users/tod/PretrainedLLM/InternVL2_5-1B
   use_8bit: false
 output:
-  checkpoint_frequency: 1
+  checkpoint_frequency: 0
   log_dir: logs/unified_multimodal
   model_dir: models/unified_multimodal
   results_dir: results/unified_multimodal
-  save_best_only: false
-  save_frequency: 1
-  tensorboard: true
+  save_best_only: true
+  save_frequency: 0
+  tensorboard: false
 seed: 42
 training:
   early_stopping:
     min_delta: 0.01
-    patience: 5
-  epochs: 20
+    patience: 3
+  epochs: 15
   flash_attention: false
   fp16: false
-  gradient_accumulation_steps: 4
+  gradient_accumulation_steps: 8
   gradient_clip: 1.0
-  learning_rate: 1.0e-07
+  learning_rate: 5.0e-05
   loss_weights:
     classification: 1.0
     language: 1.0
   low_cpu_mem_usage: true
   memory_efficient: true
   optimizer:
-    backbone_lr_multiplier: 0.01
-    language_lr_multiplier: 0.1
-    learning_rate: 2.0e-05
+    backbone_lr_multiplier: 0.05
+    language_lr_multiplier: 0.2
+    learning_rate: 5.0e-05
     name: adamw
     weight_decay: 0.01
   scheduler:
-    min_lr_factor: 0.1
+    min_lr_factor: 0.01
     name: cosine
-    warmup_steps: 500
+    warmup_steps: 200
   three_stage:
     enabled: true
     stage2:
-      lr_multiplier: 0.01
-      start_epoch: 6
+      lr_multiplier: 0.05
+      start_epoch: 4
     stage3:
-      lr_multiplier: 0.01
-      start_epoch: 11
+      lr_multiplier: 0.05
+      start_epoch: 8
   torch_compile: false
-  warmup_steps: 1000
+  warmup_steps: 200
   weight_decay: 0.0001
