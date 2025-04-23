@@ -87,10 +87,10 @@ training:
 output:
   model_dir: "models/unified_multimodal"
   results_dir: "results/unified_multimodal"
-  tensorboard: true
-  save_best_only: false
-  save_frequency: 1
-  checkpoint_frequency: 1
+  tensorboard: false
+  save_best_only: true
+  save_frequency: 0
+  checkpoint_frequency: 0
   log_dir: "logs/unified_multimodal"
 
 # Evaluation configuration

@@ -119,11 +119,13 @@ class MultimodalTrainer:
         self.epochs = config["training"]["epochs"]
         self.current_epoch = 0
         
-        # Setup TensorBoard logger if enabled
+        # Setup TensorBoard logger if enabled in config
         self.tensorboard = None
         if config["output"].get("tensorboard", False):
             tensorboard_dir = Path(config["output"]["results_dir"]) / "tensorboard"
             self.tensorboard = TensorboardLogger(tensorboard_dir)
+        else:
+            self.logger.info("TensorBoard logging disabled in config")
         
         # Setup early stopping
         if "early_stopping" in config["training"]:
@@ -703,9 +705,12 @@ class MultimodalTrainer:
         """
         import os
         
-        # Create checkpoint directory
-        checkpoint_dir = self.output_dir / "checkpoints"
-        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        # Check if we should save best model only
+        save_best_only = self.config["output"].get("save_best_only", True)
+        
+        # If save_best_only is True and this is not the best model, don't save
+        if save_best_only and not is_best:
+            return
         
         # Prepare checkpoint contents
         checkpoint = {
@@ -731,13 +736,8 @@ class MultimodalTrainer:
             }
             self.logger.info("Saving checkpoint in half precision")
         
-        # Only save if it's the best model (disk space efficiency)
         if is_best:
-            # Clear previous checkpoints
-            for old_ckpt in checkpoint_dir.glob("*.pt"):
-                os.remove(str(old_ckpt))
-            
-            # Save best model
+            # Save best model directly to output directory
             best_path = self.output_dir / "best_model.pt"
             
             # Use direct save with configured serialization settings
@@ -747,6 +747,22 @@ class MultimodalTrainer:
                 torch.save(checkpoint, str(best_path))
                 
             self.logger.info(f"Best model saved to {best_path}")
+        else:
+            # We only reach here if save_best_only is False
+            # Create checkpoint directory for intermediate checkpoints
+            checkpoint_dir = self.output_dir / "checkpoints"
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Determine path for regular checkpoint
+            checkpoint_path = checkpoint_dir / f"checkpoint_epoch_{epoch}.pt"
+            
+            # Save regular checkpoint
+            if self.use_safe_serialization:
+                torch.save(checkpoint, str(checkpoint_path), _use_new_zipfile_serialization=False)
+            else:
+                torch.save(checkpoint, str(checkpoint_path))
+                
+            self.logger.info(f"Checkpoint saved to {checkpoint_path}")
     
     def train(self) -> Tuple[InternVL2MultimodalModel, Dict[str, List[float]]]:
         """
@@ -844,8 +860,11 @@ class MultimodalTrainer:
                 self.no_improve_count += 1
                 self.logger.info(f"No improvement for {self.no_improve_count} epochs")
             
-            # Only save best model checkpoints
-            if is_best:
+            # Check config for save settings
+            save_best_only = self.config["output"].get("save_best_only", True)
+            
+            # Only save checkpoint if it's the best model or if we're not in save_best_only mode
+            if is_best or not save_best_only:
                 self.save_checkpoint(epoch, val_metrics, is_best)
             
             # Update learning rate
