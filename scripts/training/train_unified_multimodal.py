@@ -121,9 +121,12 @@ def main():
         config=config,
         pretrained=True,
         freeze_vision_encoder=True,  # Will be unfrozen during stage 2
-        freeze_language_model=False,  # Train language model from the start
-        low_cpu_mem_usage=True,      # Use memory-efficient loading
+        freeze_language_model=False   # Train language model from the start
     )
+    
+    # Configure memory optimizations through config
+    if config.get('model', {}).get('memory_efficient', False):
+        logger.info("Using memory-efficient configuration from config file")
     
     # Log memory usage after model initialization
     if torch.cuda.is_available():
