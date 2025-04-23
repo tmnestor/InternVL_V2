@@ -24,7 +24,7 @@ model:
 # Data configuration
 data:
   # Using a unified dataset structure
-  root_dir: "data/multimodal"  # Directory containing train/val/test splits
+  root_dir: "data/unified_dataset"  # Directory containing train/val/test splits
   batch_size: 2  # Further reduced batch size to address OOM errors
   num_workers: 1
   image_size: 448  # InternVL2 default size
